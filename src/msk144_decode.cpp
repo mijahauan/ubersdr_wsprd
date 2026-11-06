@@ -192,7 +192,7 @@ void msk144decodeframe(cfloat* c, float* softbits, char* msgreceived, int& nsucc
 }
 
 // ---- genmsk_128_90.f90:1-129 for a decoded message (ichk 0 gives the tones; 1 only msgsent): the '@' and genmsk40
-// branches (lines 51-56, 71-78) are not ported; the tones are lines 112-120.
+// branches (lines 51-55, 71-80) are not ported; the tones are lines 112-120.
 void genmsk_128_90(Packjt77& pk, const char* msg0, int ichk, char* msgsent, int* i4tone, int& itype) {
     static const char kBad[38] = "*** bad message ***                  ";
     const int s8d[8] = {0, 1, 1, 1, 0, 0, 1, 0};
@@ -274,7 +274,8 @@ void genmsk_128_90(Packjt77& pk, const char* msg0, int ichk, char* msgsent, int*
     for (int i = 0; i < 144; ++i) i4tone[i] = -i4tone[i] + 1;
 }
 
-// ---- msk144signalquality.f90:1-213: the non-training part, lines 44-129 (the training, 131-212, is compiled out).
+// ---- msk144signalquality.f90:1-213: the non-training part, lines 44-55 and 83-129 (the btrain-gated
+// lines 56-82 and the training, 131-212, are compiled out).
 // The state the training keeps (navg, the averaged cross spectrum, currently_training) is never touched with
 // btrain false.
 void msk144signalquality(Packjt77& pk, const cfloat* /*cframe*/, float /*snr*/, float /*freq*/, float /*t0*/,

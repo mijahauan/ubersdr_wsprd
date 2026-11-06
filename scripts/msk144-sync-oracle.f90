@@ -64,6 +64,7 @@
 ! License: GNU GPL v3 (as WSJT-X)
 program msk144_sync_oracle
    use msk_spectrum
+   use packjt77, only: calls10, calls12, calls22, recent_calls, ihash22, nzhash
    implicit none
    integer, parameter :: NZ = 7168, NSPM = 864, NF = 8192, NSL = 40, NLONG = 28000
    character(len=512) :: repo, path(4)
@@ -176,10 +177,13 @@ program msk144_sync_oracle
    enddo
    call print_slice(99, cl, NLONG)
    call check_synbits()
+   ! check_synbits runs the library's decoder and leaves the shared packjt77 tables (calls, recent_calls, hashes)
+   ! filled: the port starts empty, so start the cases from the same empty state
+   calls10 = ''; calls12 = ''; calls22 = ''; recent_calls = ''; ihash22 = -1; nzhash = 0
    ! ---- synthetic blocks: eight repeats of one frame at 1500 Hz, so that the real frame decoder meets frames
-   ! it refuses. The 77 bits (scripts/msk144-frame-oracle.f90's MB lines 153 and 182): one that unpacks to
+   ! it refuses. The 77 bits: one that unpacks to
    ! 'CQ <...>' (refused, with that text left in msgreceived), one a message the decoder returns no success for
-   ! (text left too), and 'K1ABC W9XYZ RR73' (decoded, MB line 4).
+   ! (text left too), and 'K1ABC W9XYZ RR73' (decoded).
    ! (message bits A, B, C; noise sigma; the first sample of the first frame)
    do i = 1, 3
       do j = 1, 3
@@ -366,8 +370,7 @@ contains
    end subroutine msk_frame
 
    ! synbits are the 77 bits of messages with known fates: the library's own decoder, on the clean frame of
-   ! each, must give these (the strings were found with scripts/msk144-frame-oracle.f90, its MB lines 153, 182
-   ! and 4); the oracle stops if they no longer do
+   ! each, must give these (the strings were found with scripts/msk144-frame-oracle.f90); the oracle stops if they no longer do
    subroutine check_synbits()
       complex :: cf(NSPM), ctt(NSPM)
       real :: sb(144)
