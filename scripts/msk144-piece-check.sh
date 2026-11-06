@@ -27,9 +27,14 @@
 # calls, one before the filter's `if( beq )`, one before `c(1)=0.5*c(1)` and
 # one after it, that print the filter response h, the equalizer corr, and c
 # after the forward FFT, after the filter and after the half of the DC term), and the port's hook (analytic_trace in
-# src/msk_frontend.h) prints the same. It also runs msk144_freq_search once
-# per trial frequency, for each trial's correlation peak. The driver links
-# FFTW (-lfftw3f).
+# src/msk_frontend.h) prints the same. It also gets a copy of the reference's
+# lib/msk144_freq_search.f90 (sed: renamed msk144_freq_search_trace, plus one
+# call after `xcc=abs(cc)` that prints each trial's averaged frames c, its
+# correlation cc and its magnitudes xcc), checked against the library's
+# routine, and the port's hook (freq_search_trace in src/msk_frontend.h) prints
+# the same: every trial of every search, not only the one that wins. It also
+# runs msk144_freq_search once per trial frequency, for each trial's
+# correlation peak. The driver links FFTW (-lfftw3f).
 #
 # sync also checks intermediate values: the oracle gets, appended, two copies
 # of the reference's routines (sed: lib/msk144sync.f90 renamed
@@ -104,7 +109,7 @@ esac
 # count when a piece gains cases.
 case $piece in
     ldpc) min_lines=4600 ;;
-    frontend) min_lines=72000 ;;
+    frontend) min_lines=119000 ;;
     sync) min_lines=228000 ;;
     frame) min_lines=79000 ;;
     msk40) min_lines=54000 ;;
@@ -154,7 +159,14 @@ if [[ $piece == frontend ]]; then
         "$ref" > "$work/trace-routine.f90"
     [[ $(diff "$ref" "$work/trace-routine.f90" | grep -c '^>') == 5 ]] ||
         { echo "msk144-piece-check: the sed instrumentation did not apply to $ref" >&2; exit 1; }
-    cat "$oracle_src" "$work/trace-routine.f90" > "$oracle_full"
+    ref2=${WSJTX:-$HOME/repos/wsjtx}/lib/msk144_freq_search.f90
+    sed -e 's/^subroutine msk144_freq_search(/subroutine msk144_freq_search_trace(/' \
+        -e 's/^end subroutine msk144_freq_search$/end subroutine msk144_freq_search_trace/' \
+        -e 's/^     xcc=abs(cc)$/&\n     call msk144_dump_trial(ifr,c,cc,xcc)/' \
+        "$ref2" > "$work/trace-search.f90"
+    [[ $(diff "$ref2" "$work/trace-search.f90" | grep -c '^>') == 3 ]] ||
+        { echo "msk144-piece-check: the sed instrumentation did not apply to $ref2" >&2; exit 1; }
+    cat "$oracle_src" "$work/trace-routine.f90" "$work/trace-search.f90" > "$oracle_full"
 fi
 
 if [[ $piece == sync ]]; then
@@ -301,7 +313,7 @@ rm -f "$work/driver"
 
 if cmp -s "$work/oracle.out" "$work/driver.out"; then
     if [[ $piece == frontend ]]; then
-        echo "msk144-piece-check: $piece: identical ($(wc -l < "$work/oracle.out") lines: $(grep -c '^A' "$work/oracle.out") analytic, $(grep -c '^T' "$work/oracle.out") tweak1, $(grep -c '^S' "$work/oracle.out") freq_search, $(grep -c '^Q' "$work/oracle.out") trial peaks)"
+        echo "msk144-piece-check: $piece: identical ($(wc -l < "$work/oracle.out") lines: $(grep -c '^A' "$work/oracle.out") analytic, $(grep -c '^T' "$work/oracle.out") tweak1, $(grep -c '^S' "$work/oracle.out") freq_search, $(grep -c '^R' "$work/oracle.out") traced trials, $(grep -c '^Q' "$work/oracle.out") trial peaks)"
         exit 0
     fi
     if [[ $piece == frame ]]; then
