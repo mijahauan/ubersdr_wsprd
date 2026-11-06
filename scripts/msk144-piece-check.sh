@@ -31,6 +31,20 @@
 # per trial frequency, for each trial's correlation peak. The driver links
 # FFTW (-lfftw3f).
 #
+# sync also checks intermediate values: the oracle gets, appended, two copies
+# of the reference's routines (sed: lib/msk144sync.f90 renamed
+# msk144sync_trace, with calls that print the constants pp and cb at its first
+# call and c and xcc before its peak search; lib/msk144spd.f90 renamed
+# msk144spd_trace, with calls that print its constants, its spectrum windows,
+# each step's peaks and ratios, the detection arrays and median, the
+# candidates, each call of msk144sync, and where it calls msk144decodeframe a
+# hook that runs the reference's frame decoder and prints a hash of what it was
+# given and what it answered). The port's hooks (sync_trace and spd_trace in
+# src/msk144_sync.h) print the same; the port's frame decoder is a driver
+# stand-in that replays the reference's answers (the real one is a later
+# piece). Every case also runs the library's routines and the oracle stops if
+# a copy's results differ from them.
+#
 # The oracle is compiled afresh on every run (scripts/msk144-oracle.sh fortran
 # does not cache by name), so an edit to a oracle's source always shows.
 #
@@ -44,7 +58,7 @@
 #   MSK144_ORACLE_WORK=DIR   as scripts/msk144-oracle.sh (default
 #                            ~/.cache/msk144-oracle); needs its `build`
 #
-# Pieces: ldpc frontend
+# Pieces: ldpc frontend sync
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -52,6 +66,7 @@ piece=${1:-}
 case $piece in
     ldpc) sources="src/msk144_ldpc.cpp src/ft8_ldpc.cpp src/wsprd_osd.cpp" ;;
     frontend) sources="src/msk_frontend.cpp src/ft8_maths.cpp src/fft.cpp src/fft_wisdom.cpp" ;;
+    sync) sources="src/msk144_sync.cpp src/msk_frontend.cpp src/ft8_maths.cpp src/fft.cpp src/fft_wisdom.cpp" ;;
     *) sed -n '/^# Pieces:/p' "$0" | sed 's/^# //' >&2; exit 2 ;;
 esac
 oracle_src=$repo/scripts/msk144-$piece-oracle.f90
@@ -101,6 +116,32 @@ if [[ $piece == frontend ]]; then
     cat "$oracle_src" "$work/trace-routine.f90" > "$oracle_full"
 fi
 
+if [[ $piece == sync ]]; then
+    lib=${WSJTX:-$HOME/repos/wsjtx}/lib
+    oracle_full=$work/msk144-sync-oracle-traced.f90
+    sed -e 's/^subroutine msk144sync(/subroutine msk144sync_trace(/' \
+        -e 's/^end subroutine msk144sync$/end subroutine msk144sync_trace/' \
+        -e 's/^     first=\.false\.$/&\n     call msk144_sync_consts(pp,cb)/' \
+        -e 's/^! Find npeaks largest peaks$/  call msk144_sync_peak(xmax,fest,c,xcc,nfreqs)\n&/' \
+        "$lib/msk144sync.f90" > "$work/trace-sync.f90"
+    [[ $(diff "$lib/msk144sync.f90" "$work/trace-sync.f90" | grep -c '^>') == 4 ]] ||
+        { echo "msk144-piece-check: the sed instrumentation did not apply to $lib/msk144sync.f90" >&2; exit 1; }
+    sed -e 's/^subroutine msk144spd(/subroutine msk144spd_trace(/' \
+        -e 's/^end subroutine msk144spd$/end subroutine msk144spd_trace/' \
+        -e 's/^     first=\.false\.$/&\n     call msk144_spd_consts(rcw)/' \
+        -e 's/^  i4000=nint(nfhi\/df) + 1$/&\n  call msk144_spd_win(ihlo,ihhi,illo,ilhi,i2000,i4000)/' \
+        -e 's/^    detfer(istp)=ferr$/&\n    call msk144_spd_step(istp,ihpk,ilpk,deltah,deltal,ah,al,trath,tratl,ferr)/' \
+        -e 's/^  xmed=detmet(indices(nstep\/4))$/&\n  call msk144_spd_med(nstep,indices,xmed,detmet,detmet2,detfer)/' \
+        -e 's/^  npeaks=2$/  call msk144_spd_cands(ndet,nstart,ferrs,snrs)\n&/' \
+        -e 's/call msk144sync(cdat,3,/call msk144sync_trace(cdat,3,/' \
+        -e 's/^           nsyncsuccess,xmax,c)$/&\n      call msk144_spd_sync(icand,iav,nsyncsuccess,fest,xmax,npkloc)/' \
+        -e 's/call msk144decodeframe(ct,softbits,msgreceived,ndecodesuccess)/call msk144_frame_hook(ct,softbits,msgreceived,ndecodesuccess)/' \
+        "$lib/msk144spd.f90" > "$work/trace-spd.f90"
+    [[ $(diff "$lib/msk144spd.f90" "$work/trace-spd.f90" | grep -c '^>') == 10 ]] ||
+        { echo "msk144-piece-check: the sed instrumentation did not apply to $lib/msk144spd.f90" >&2; exit 1; }
+    cat "$oracle_src" "$work/trace-sync.f90" "$work/trace-spd.f90" > "$oracle_full"
+fi
+
 # the oracle
 oracle=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_full" "msk144-$piece-oracle")
 "$repo/scripts/msk144-oracle.sh" exec "$oracle" "$repo" > "$work/oracle.out"
@@ -113,6 +154,10 @@ rm -f "$work/driver"
 if cmp -s "$work/oracle.out" "$work/driver.out"; then
     if [[ $piece == frontend ]]; then
         echo "msk144-piece-check: $piece: identical ($(wc -l < "$work/oracle.out") lines: $(grep -c '^A' "$work/oracle.out") analytic, $(grep -c '^T' "$work/oracle.out") tweak1, $(grep -c '^S' "$work/oracle.out") freq_search, $(grep -c '^Q' "$work/oracle.out") trial peaks)"
+        exit 0
+    fi
+    if [[ $piece == sync ]]; then
+        echo "msk144-piece-check: sync: identical ($(wc -l < "$work/oracle.out") lines: $(grep -c '^SYN' "$work/oracle.out") msk144sync and $(grep -c '^SPD' "$work/oracle.out") msk144spd runs; $(awk '$1 == "X" && $3 == 1 && $4 !~ /^\|/' "$work/oracle.out" | wc -l) msk144sync successes; $(grep -c '^F ' "$work/oracle.out") frame decodes replayed ($(grep -c '^F .* [1-9][0-9]* |' "$work/oracle.out") decoded); $(grep -c '^T' "$work/oracle.out") spd steps, $(grep -c '^[LJKW] ' "$work/oracle.out") piece cases)"
         exit 0
     fi
     echo "msk144-piece-check: $piece: identical ($(wc -l < "$work/oracle.out") lines, $(grep -c '^R' "$work/oracle.out") decodes run, $(grep -c '^I' "$work/oracle.out") trace lines, $(grep -c '^P' "$work/oracle.out") platanh and $(grep -c '^T' "$work/oracle.out") tanh values, $(awk '$1 == "R" && $4 >= 0' "$work/oracle.out" | wc -l) decoded, $(grep -c '^C' "$work/oracle.out") CRC checks)"
