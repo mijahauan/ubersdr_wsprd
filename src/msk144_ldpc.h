@@ -42,6 +42,9 @@ extern Bpdecode128_90MsgTrace bpdecode128_90_msg_trace;
 // 0/1. The return value equals nharderror.
 int bpdecode128_90(const float llr[128], int maxiterations, signed char message77[77], signed char cw[128],
                    int& nharderror, int& niterations);
+// True when bpdecode128_90's edge tables passed their checks; false means every
+// call silently runs bpdecode128_90_reference. The piece check requires true.
+bool bpdecode128_90_fast_tables_ok();
 // The line-for-line translation bpdecode128_90 was optimised from, kept for
 // the side-by-side test and as its fallback: the same results and the same
 // trace.

@@ -35,6 +35,11 @@ float float_of(const std::string& hex) {
 }  // namespace
 
 int main() {
+    if (!msk144::bpdecode128_90_fast_tables_ok()) {
+        std::fprintf(stderr, "msk144-ldpc-check: FAST TABLES FAILED their checks: bpdecode128_90 runs the reference\n");
+        return 1;
+    }
+    std::fprintf(stderr, "msk144-ldpc-check: fast tables passed (bpdecode128_90 runs the edge-table path)\n");
     std::string line;
     int nrun = 0;  // decodes run: the oracle's END count
     float llr[128] = {};

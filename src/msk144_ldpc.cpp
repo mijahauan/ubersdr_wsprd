@@ -81,8 +81,9 @@ bool chkcrc13a(const signed char decoded[90]) {
     return nbadcrc == 0;
 }
 
-// bpdecode128_90 (lib/bpdecode128_90.f90), line for line: the reference
-// bpdecode128_90 below was made from, and its fallback. The Fortran's
+// bpdecode128_90 (lib/bpdecode128_90.f90), line for line. This is the routine
+// the fast bpdecode128_90 below was made from, and the one it falls back on if
+// its tables do not check out. The Fortran's
 // Nm(i,j), Mn(kk,j), nrw(j) are the lambdas below; tov, toc, tanhtoc, zn,
 // llr, cw keep 1-based indices.
 int bpdecode128_90_reference(const float llr_in[128], int maxiterations, signed char message77[77],
@@ -118,8 +119,8 @@ int bpdecode128_90_reference(const float llr_in[128], int maxiterations, signed 
     for (iter = 0; iter <= maxiterations; ++iter) {
         // Update bit log likelihood ratios (tov=0 in iteration 0).
         for (int i = 1; i <= N; ++i) {
-            float s = tov[1][i];  // sum(tov(1:ncw,i)), in order
-            for (int kk = 2; kk <= ncw; ++kk) s += tov[kk][i];
+            float s = 0.f;  // sum(tov(1:ncw,i)): gfortran starts from +0, so -0 terms give +0
+            for (int kk = 1; kk <= ncw; ++kk) s += tov[kk][i];
             zn[i] = llr[i] + s;
         }
 
@@ -208,6 +209,7 @@ struct BpTables128 {
     int n11 = 0;                  // checks of 11 bits: columns 0..n11-1 (at most 8: column group 0)
     int col_check[kW];            // the check (0-based) in a column; -1 for the padding
     int ebit[kRows * kW];         // the bit (0-based) on an edge; 0 for the unused slots
+    static_assert(kNcw == 3, "slot[][3] and the three-term sum in bpdecode128_90 assume ncw == 3");
     int slot[N][3];               // the edge of bit i and its kk-th check Mn(kk+1, i+1)
     BpTables128() {
         int col = 0;
@@ -261,6 +263,11 @@ const BpTables128& bp_tables128() {
     static const BpTables128 t;
     return t;
 }
+}  // namespace
+
+bool bpdecode128_90_fast_tables_ok() { return bp_tables128().ok; }
+
+namespace {
 
 // Eight float lanes (GCC and Clang vector extensions: AVX on x86-64-v3, NEON
 // pairs on arm64, scalar code elsewhere). Each lane's operations are IEEE
@@ -363,7 +370,8 @@ int bpdecode128_90(const float llr[128], int maxiterations, signed char message7
     for (iter = 0; iter <= maxiterations; ++iter) {
         // Update bit log likelihood ratios (tov=0 in iteration 0).
         for (int i = 0; i < N; ++i) {
-            float s = tov[bt.slot[i][0]];  // sum(tov(1:ncw,i)), in order
+            float s = 0.f;  // sum(tov(1:ncw,i)): gfortran starts from +0, so -0 terms give +0
+            s += tov[bt.slot[i][0]];
             s += tov[bt.slot[i][1]];
             s += tov[bt.slot[i][2]];
             zn[i] = llr[i] + s;
