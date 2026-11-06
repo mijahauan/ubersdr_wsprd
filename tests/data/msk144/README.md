@@ -100,7 +100,7 @@ Made one reference process per file, `OMP_DYNAMIC` and `OMP_THREAD_LIMIT` unset.
 |------|-----------------------------|
 | `odd-trunc`  | `d1`, `d3`, `defaults`, `ms`: a WAV whose header says 15 s but whose file stops at 9 s (cut from `181211_120500`). The reference and the port print `WAV chunk extends beyond end of file` and exit 2. 3.0.2 decoded the 9 s that were there and exited 0 (`AB-3.0.2.md`) |
 | `odd-stream` | the same four: a WAV with the streaming writers' placeholder size 0xFFFFFFFF in both headers, the full 15 s of data. The reference and the port print `WAV chunk has an invalid size` and exit 2; 3.0.2 decoded the file and exited 0 |
-| `real-uacnj-*` | `ms` only: 20 real 30 s slots from UACNJ's meteor-scatter archive (50.260 MHz, slots of 2026-11-04 to 2026-11-06), run with meteor-scatter's own command line `-Y --msk144 -p 15 -f 1500 -F 200 -d 3 -a .` |
+| `real-uacnj-*` | `ms` only: 20 real 30 s slots from UACNJ's meteor-scatter archive (50.260 MHz, slots of 2026-11-04 to 2026-11-06), run as UACNJ's station runs them, `-Y --msk144 -p 30 -f 1500 -F 200 -d 3 -a .` (its `tr_period_sec` is 30) |
 
 The two odd WAVs are `@I/` inputs, made by `scripts/jt9-compare.sh`'s generator
 like the others. The `real-uacnj-*` inputs are in `recordings/msk144-uacnj/`,
@@ -146,10 +146,9 @@ slot). Two cases run it: `real-261023-p30`
 
 **UACNJ's slots.** `recordings/msk144-uacnj/*.wav` and their `.json`
 sidecars: 20 slots of meteor-scatter's archive at UACNJ, 6 m, 30 s each. Cases
-`real-uacnj-YYMMDD_HHMMSS`. Each runs at `-p 15`, as meteor-scatter's command
-line has it, so the reference reads the first 15 s of a 30 s file. That is how
-meteor-scatter calls it; the sidecars record decodes of the whole slot, so some
-that the sidecars list fall outside the 15 s the corpus decodes. They are a
+`real-uacnj-YYMMDD_HHMMSS`. Each runs at `-p 30`, as UACNJ's station runs
+meteor-scatter (`tr_period_sec = 30` in its configuration; meteor-scatter's own
+code default is 15), so the reference reads the whole slot. They are a
 sample, not the hour the design (section 7) asks for.
 
 ## What the reference does here

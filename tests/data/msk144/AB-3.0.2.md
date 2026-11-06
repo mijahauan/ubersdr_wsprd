@@ -24,7 +24,8 @@ Run it with `scripts/msk144-ab-302.sh [JT9]`.
   `bshmsg` and `bswl` false and has no option for them. Patching 3.0.2 the way
   the reference was patched would give them a counterpart. We did not.
 - **Result**: 287 runs the same, 34 different. The 20 real UACNJ slots
-  (`real-uacnj-*`) all agree. The 8 new differences, from the truncated and
+  (`real-uacnj-*`, run at `-p 30` as the station runs them, 28 decode
+  lines between them) all agree, character for character. The 8 new differences, from the truncated and
   the streaming-header file, come from the final fix wave (cause 3 below).
 
 The 34 fall into three causes. The table that follows, and its count of 26,

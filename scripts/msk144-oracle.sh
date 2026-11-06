@@ -464,7 +464,7 @@ extra)
     done
     for w in "$repo"/recordings/msk144-uacnj/*.wav; do
         n=$(basename "$w" .wav)
-        single "real-uacnj-$n" ms "recordings/msk144-uacnj/$n.wav" -Y --msk144 -p 15 -f 1500 -F 200 -d 3 -a .
+        single "real-uacnj-$n" ms "recordings/msk144-uacnj/$n.wav" -Y --msk144 -p 30 -f 1500 -F 200 -d 3 -a .
     done
     echo "msk144-oracle: extra: $(ls -d "$data"/cases/{odd-trunc,odd-stream,real-uacnj-*}/jt9-* | wc -l) runs stored" >&2
     ;;
