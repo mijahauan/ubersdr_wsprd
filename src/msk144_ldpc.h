@@ -40,4 +40,11 @@ int bpdecode128_90(const float llr[128], int maxiterations, signed char message7
 // the 77 of decoded(1:90) are the CRC of the 77 (bits 0/1).
 bool chkcrc13a(const signed char decoded[90]);
 
+// encode_128_90(message77, codeword) (lib/encode_128_90.f90, with
+// lib/ldpc_128_90_generator.f90): the 77 bits (0/1), the 13-bit CRC of them
+// and the 38 parity checks, the 128-bit codeword. Added with the frame
+// decoder (msk144_decode.h), whose signal-quality step regenerates the
+// transmitted bits; checked there (scripts/msk144-frame-oracle.f90).
+void encode_128_90(const signed char message77[77], signed char codeword[128]);
+
 }  // namespace msk144

@@ -19,6 +19,7 @@ Bpdecode128_90Trace bpdecode128_90_trace = nullptr;
 
 namespace {
 
+#include "msk144_generator.inc"
 #include "msk144_ldpc_tables.inc"
 
 constexpr int N = 128, K = 90, M = N - K;
@@ -186,6 +187,53 @@ int bpdecode128_90(const float llr_in[128], int maxiterations, signed char messa
     std::memcpy(cw_out, cw + 1, N);
     niterations = iter;
     return nharderror;
+}
+
+// encode_128_90 (lib/encode_128_90.f90).
+void encode_128_90(const signed char message77[77], signed char codeword[128]) {
+    // fill the generator matrix: gen(i, icol) for the 38 rows, 90 columns (once, thread-safe)
+    struct Gen {
+        signed char g[M][K];
+        Gen() {
+            std::memset(g, 0, sizeof g);
+            for (int i = 0; i < M; ++i) {
+                for (int j = 1; j <= 23; ++j) {
+                    const char h = kGen[i][j - 1];
+                    const int istr = h <= '9' ? h - '0' : (h | 0x20) - 'a' + 10;  // read(g(i)(j:j),"(Z1)") istr
+                    int ibmax = 4;
+                    if (j == 23) ibmax = 2;
+                    for (int jj = 1; jj <= ibmax; ++jj) {
+                        const int icol = (j - 1) * 4 + jj;
+                        if ((istr >> (4 - jj)) & 1) g[i][icol - 1] = 1;  // btest(istr, 4-jj)
+                    }
+                }
+            }
+        }
+    };
+    static const Gen gen_matrix;
+    const auto& gen = gen_matrix.g;
+    // Add 13 bit CRC to form 90-bit message+CRC13: tmpchar = the 77 bits and '000', read as 10b8
+    unsigned char bytes[12] = {};
+    for (int i = 0; i < 10; ++i) {
+        unsigned v = 0;
+        for (int b = 0; b < 8; ++b) {
+            const int idx = i * 8 + b;  // 0-based bit of tmpchar(1:80)
+            v = v * 2 + (idx < 77 ? static_cast<unsigned>(message77[idx]) : 0u);
+        }
+        bytes[i] = static_cast<unsigned char>(v);
+    }
+    const int ncrc13 = crc13(bytes, 12);
+    signed char message[K];
+    for (int i = 0; i < 77; ++i) message[i] = message77[i];
+    for (int b = 0; b < 13; ++b) message[77 + b] = static_cast<signed char>((ncrc13 >> (12 - b)) & 1);  // write(tmpchar(78:90),'(b13)')
+    signed char pchecks[M];
+    for (int i = 0; i < M; ++i) {
+        int nsum = 0;
+        for (int j = 0; j < K; ++j) nsum = nsum + message[j] * gen[i][j];
+        pchecks[i] = static_cast<signed char>(nsum % 2);
+    }
+    for (int i = 0; i < K; ++i) codeword[i] = message[i];
+    for (int i = 0; i < M; ++i) codeword[K + i] = pchecks[i];
 }
 
 }  // namespace msk144

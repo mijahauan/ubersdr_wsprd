@@ -38,12 +38,14 @@
 # msk144spd_trace, with calls that print its constants, its spectrum windows,
 # each step's peaks and ratios, the detection arrays and median, the
 # candidates, each call of msk144sync, and where it calls msk144decodeframe a
-# hook that runs the reference's frame decoder and prints a hash of what it was
-# given and what it answered). The port's hooks (sync_trace and spd_trace in
-# src/msk144_sync.h) print the same; the port's frame decoder is a driver
-# stand-in that replays the reference's answers (the real one is a later
-# piece). Every case also runs the library's routines and the oracle stops if
-# a copy's results differ from them.
+# hook that runs the reference's frame decoder, on the frame itself (in place,
+# as the library's msk144spd does), and prints a hash of what it was given and
+# what it answered). The port's hooks (sync_trace and spd_trace in
+# src/msk144_sync.h) print the same, its frame decoder is the real one
+# (src/msk144_decode.cpp), and the oracle's ct, softbits and msgreceived after
+# msk144spd (success or failure) are compared with the port's. Every case also
+# runs the library's routines and the oracle stops if a copy's results differ
+# from them (ct included).
 #
 # The oracle is compiled afresh on every run (scripts/msk144-oracle.sh fortran
 # does not cache by name), so an edit to a oracle's source always shows.
@@ -58,7 +60,18 @@
 #   MSK144_ORACLE_WORK=DIR   as scripts/msk144-oracle.sh (default
 #                            ~/.cache/msk144-oracle); needs its `build`
 #
-# Pieces: ldpc frontend sync
+# frame also checks intermediate values: the oracle gets, appended, a copy of
+# the reference's lib/msk144decodeframe.f90 (sed: renamed msk144decodeframe_trace,
+# with calls that print its constants pp and cb, cca/ccb/phase0, cfac, c after the
+# phase correction, the raw softbits, the sync errors, the normalisation, llr,
+# bpdecode128_90's answer and the message type bits); every frame runs the copy and
+# the library's routine and the oracle stops if their results differ. The driver's
+# hooks (decode_trace in src/msk144_decode.h) print the same. The module packjt77's
+# tables are shared state: the driver makes the same pack77 and unpack77 calls in the
+# same order (the lines PK, RUN and QS). It also checks encode_128_90, genmsk_128_90,
+# fmtmsg and atan2 (the port's atan2f_glibc against the container's glibc 2.39).
+#
+# Pieces: ldpc frontend sync frame
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -66,7 +79,8 @@ piece=${1:-}
 case $piece in
     ldpc) sources="src/msk144_ldpc.cpp src/ft8_ldpc.cpp src/wsprd_osd.cpp" ;;
     frontend) sources="src/msk_frontend.cpp src/ft8_maths.cpp src/fft.cpp src/fft_wisdom.cpp" ;;
-    sync) sources="src/msk144_sync.cpp src/msk_frontend.cpp src/ft8_maths.cpp src/fft.cpp src/fft_wisdom.cpp" ;;
+    sync) sources="src/msk144_sync.cpp src/msk144_decode.cpp src/msk144_ldpc.cpp src/ft8_ldpc.cpp src/wsprd_osd.cpp src/packjt77.cpp src/msk_frontend.cpp src/ft8_maths.cpp src/fft.cpp src/fft_wisdom.cpp" ;;
+    frame) sources="src/msk144_decode.cpp src/msk144_ldpc.cpp src/ft8_ldpc.cpp src/wsprd_osd.cpp src/packjt77.cpp src/ft8_maths.cpp" ;;
     *) sed -n '/^# Pieces:/p' "$0" | sed 's/^# //' >&2; exit 2 ;;
 esac
 oracle_src=$repo/scripts/msk144-$piece-oracle.f90
@@ -157,6 +171,26 @@ run_oracle() {  # BINARY OUTFILE [env args...]
         { echo "msk144-piece-check: $piece: the oracle's output ($out) does not end with 'END $piece N': truncated" >&2; exit 1; }
 }
 
+if [[ $piece == frame ]]; then
+    lib=${WSJTX:-$HOME/repos/wsjtx}/lib
+    oracle_full=$work/msk144-frame-oracle-traced.f90
+    sed -e 's/^subroutine msk144decodeframe(/subroutine msk144decodeframe_trace(/' \
+        -e 's/^end subroutine msk144decodeframe$/end subroutine msk144decodeframe_trace/' \
+        -e 's/^     first=\.false\.$/&\n     call msk144_df_consts(pp,cb)/' \
+        -e 's/^  phase0=atan2(imag(cca+ccb),real(cca+ccb))$/&\n  call msk144_df_phase(cca,ccb,phase0)/' \
+        -e 's/^  c=c\*conjg(cfac)$/&\n  call msk144_df_corr(cfac,c)/' \
+        -e 's/^! sync word hard error weight is used as a discriminator for $/  call msk144_df_soft(softbits)\n&/' \
+        -e 's/^  nbadsync=nbadsync1+nbadsync2$/&\n  call msk144_df_sync(nbadsync1,nbadsync2)/' \
+        -e 's/^  ssig=sqrt(s2av-sav\*sav)$/&\n  call msk144_df_norm(sav,s2av,ssig)/' \
+        -e 's/^  llr=2\.0\*llr\/(sigma\*sigma)$/&\n  call msk144_df_llr(llr)/' \
+        -e 's/^  call bpdecode128_90(llr,apmask,max_iterations,decoded77,cw,nharderror,niterations)$/&\n  call msk144_df_bp(decoded77,cw,nharderror,niterations)/' \
+        -e "s/^    read(c77(72:77),'(2b3)') n3,i3\$/&\n    call msk144_df_tag(c77,n3,i3)/" \
+        "$lib/msk144decodeframe.f90" > "$work/trace-frame.f90"
+    [[ $(diff "$lib/msk144decodeframe.f90" "$work/trace-frame.f90" | grep -c '^>') == 11 ]] ||
+        { echo "msk144-piece-check: the sed instrumentation did not apply to $lib/msk144decodeframe.f90" >&2; exit 1; }
+    cat "$oracle_src" "$work/trace-frame.f90" > "$oracle_full"
+fi
+
 # the oracle
 oracle=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_full" "msk144-$piece-oracle")
 run_oracle "$oracle" "$work/oracle.out"
@@ -184,8 +218,12 @@ if cmp -s "$work/oracle.out" "$work/driver.out"; then
         echo "msk144-piece-check: $piece: identical ($(wc -l < "$work/oracle.out") lines: $(grep -c '^A' "$work/oracle.out") analytic, $(grep -c '^T' "$work/oracle.out") tweak1, $(grep -c '^S' "$work/oracle.out") freq_search, $(grep -c '^Q' "$work/oracle.out") trial peaks)"
         exit 0
     fi
+    if [[ $piece == frame ]]; then
+        echo "msk144-piece-check: frame: identical ($(wc -l < "$work/oracle.out") lines: $(grep -c '^RUN' "$work/oracle.out") frames, $(grep -c '^R .* [1-9][0-9]* |' "$work/oracle.out") decoded, $(grep -c '^QS' "$work/oracle.out") signal-quality runs, $(grep -c '^KD' "$work/oracle.out") LDPC runs, $(grep -c '^EN' "$work/oracle.out") encodes, $(grep -c '^GM' "$work/oracle.out") genmsk, $(grep -c '^FM' "$work/oracle.out") fmtmsg, $(grep -c '^AV' "$work/oracle.out") atan2 values and $(grep -c '^AT' "$work/oracle.out") atan2 sweeps)"
+        exit 0
+    fi
     if [[ $piece == sync ]]; then
-        echo "msk144-piece-check: sync: identical, and the OpenMP library at 4 threads the same ($(wc -l < "$work/oracle.out") lines: $(grep -c '^SYN' "$work/oracle.out") msk144sync and $(grep -c '^SPD' "$work/oracle.out") msk144spd runs; $(awk '$1 == "X" && $3 == 1 && $4 !~ /^\|/' "$work/oracle.out" | wc -l) msk144sync successes; $(grep -c '^F ' "$work/oracle.out") frame decodes replayed ($(grep -c '^F .* [1-9][0-9]* |' "$work/oracle.out") decoded); $(grep -c '^T' "$work/oracle.out") spd steps, $(grep -c '^[LJKW] ' "$work/oracle.out") piece cases)"
+        echo "msk144-piece-check: sync: identical, and the OpenMP library at 4 threads the same ($(wc -l < "$work/oracle.out") lines: $(grep -c '^SYN' "$work/oracle.out") msk144sync and $(grep -c '^SPD' "$work/oracle.out") msk144spd runs; $(awk '$1 == "X" && $3 == 1 && $4 !~ /^\|/' "$work/oracle.out" | wc -l) msk144sync successes; $(grep -c '^F ' "$work/oracle.out") frame decodes by the port's own decoder ($(grep -c '^F .* [1-9][0-9]* |' "$work/oracle.out") decoded); $(grep -c '^T' "$work/oracle.out") spd steps, $(grep -c '^[LJKW] ' "$work/oracle.out") piece cases)"
         exit 0
     fi
     echo "msk144-piece-check: $piece: identical ($(wc -l < "$work/oracle.out") lines, $(grep -c '^R' "$work/oracle.out") decodes run, $(grep -c '^I' "$work/oracle.out") trace lines, $(grep -c '^P' "$work/oracle.out") platanh and $(grep -c '^T' "$work/oracle.out") tanh values, $(awk '$1 == "R" && $4 >= 0' "$work/oracle.out" | wc -l) decoded, $(grep -c '^C' "$work/oracle.out") CRC checks)"

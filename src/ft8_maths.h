@@ -13,6 +13,10 @@
 // the platform only what IEEE 754 defines exactly: sqrtf, fabsf, fmodf,
 // lroundf.
 //
+// Also atan2f (MSK144's carrier phase): sysdeps/ieee754/flt-32 e_atan2f.c and
+// s_atanf.c (fdlibm's), line for line; glibc 2.42 replaced them with CORE-MATH's
+// correctly rounded ones, which round differently in the last bit.
+//
 // Each is checked equal to glibc 2.39's own on every float on x86-64
 // (tests/test_ft8_maths.cpp, [ft8-maths-libm]).
 #pragma once
@@ -84,5 +88,9 @@ void log10f4_glibc(const float* in, float* out);
 // ft8_maths.cpp). FT4's ft4_baseline calls it with x = 10 in every lane
 // (checked against glibc's on every float y there).
 void powf4_glibc(const float* x, const float* y, float* out);
+
+// atan2f(y, x): e_atan2f.c's __ieee754_atan2f (with s_atanf.c's __atanf), as
+// glibc 2.39 returns it on x86-64 (the wrapper's errno settings left out).
+float atan2f_glibc(float y, float x);
 
 }  // namespace ft8

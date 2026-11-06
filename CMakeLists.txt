@@ -113,7 +113,7 @@ set_source_files_properties(${FT4_SOURCES} PROPERTIES COMPILE_OPTIONS "${FT8_FP_
 set(FT2_SOURCES src/ft2_sync.cpp src/ft2.cpp src/ft2_jt9.cpp)
 set_source_files_properties(${FT2_SOURCES} PROPERTIES COMPILE_OPTIONS "${FT8_FP_OPTIONS}")
 # MSK144: WSJT-X 3.2.0-rc1's decoder, line for line (docs/superpowers/plans/2026-11-06-msk144-port.md)
-set(MSK144_SOURCES src/msk144_ldpc.cpp src/msk_frontend.cpp src/msk144_sync.cpp)
+set(MSK144_SOURCES src/msk144_ldpc.cpp src/msk_frontend.cpp src/msk144_sync.cpp src/msk144_decode.cpp)
 set_source_files_properties(${MSK144_SOURCES} PROPERTIES COMPILE_OPTIONS "${FT8_FP_OPTIONS}")
 add_executable(jt9 src/jt9_main.cpp src/jt9_cli.cpp src/jt9_shm.cpp ${FST4W_SOURCES} ${FT8_SOURCES} ${FT_FAST_SOURCES} ${FT4_SOURCES} ${FT2_SOURCES} ${MSK144_SOURCES}
   src/ft8_maths.cpp src/ft8_jt9.cpp

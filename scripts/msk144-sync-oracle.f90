@@ -9,9 +9,12 @@
 ! scripts/msk144-piece-check.sh) that print their intermediate values; every
 ! case runs the copy and the library's routine and stops if their results
 ! differ. The copy of msk144spd calls msk144sync_trace and, for each frame it
-! decodes, msk144_frame_hook, which runs the library's msk144decodeframe and
-! prints what it gave: the port's driver replays those results for its own
-! msk144spd (the frame decoder is a later piece).
+! decodes, msk144_frame_hook, which runs the library's msk144decodeframe on the
+! frame itself (it corrects the frame in place, as it does in the library's
+! msk144spd, so the copy's ct, softbits and msgreceived are the library's) and
+! prints a hash of what it was given and what it answered: the port's driver
+! runs its own msk144decodeframe (src/msk144_decode.cpp) on the frames its own
+! msk144spd cuts, and prints the same.
 !
 ! Every float is its bits, 8 hex digits (a real*8, 16); arrays 16 values a
 ! line, "TAG k first-index values", complex values as re, im pairs.
@@ -84,10 +87,18 @@ program msk144_sync_oracle
    real :: sc, fcx
    integer :: s1x
    integer :: patt(8,4)
+   integer*8 :: sst
+   character(len=77) :: synbits(3)
+   real, parameter :: synsig(3) = (/0.15, 0.3, 0.6/)
+   integer, parameter :: synstart(3) = (/201, 437, 650/)
    data patt/1,1,1,1,0,0,0,0, 0,0,1,1,1,1,0,0, 1,1,1,1,1,0,0,0, 1,1,1,1,1,1,1,0/
 
    npatience = 1
    nthreads = 1
+   sst = 4242_8
+   synbits(1) = '11100000001100101110001110101111110010011011000110000111000100100010001001100'
+   synbits(2) = '11001000001000001110101001101101111001100010101001100011001000110111011101001'
+   synbits(3) = '00001001101111011110001101010000011000010100100111011100000111111001110101001'
    nanv = transfer(int(z'7FC00000'), 0.0)
    infv = transfer(int(z'7F800000'), 0.0)
    call get_command_argument(1, repo)
@@ -164,6 +175,18 @@ program msk144_sync_oracle
       deallocate(wav)
    enddo
    call print_slice(99, cl, NLONG)
+   ! ---- synthetic blocks: eight repeats of one frame at 1500 Hz, so that the real frame decoder meets frames
+   ! it refuses. The 77 bits (scripts/msk144-frame-oracle.f90's MB lines 153 and 182): one that unpacks to
+   ! 'CQ <...>' (refused, with that text left in msgreceived), one a message the decoder returns no success for
+   ! (text left too), and 'K1ABC W9XYZ RR73' (decoded, MB line 4).
+   ! (message bits A, B, C; noise sigma; the first sample of the first frame)
+   do i = 1, 3
+      do j = 1, 3
+         call synth_slice(synbits(i), synsig(j), synstart(1 + mod(i + j, 3)))
+      enddo
+   enddo
+   call synth_slice(synbits(1), 1.2, 201)
+
    shot1 = nsl_file(1) - 1
    sdec1 = 1
    sfirst = 1
@@ -182,6 +205,15 @@ program msk144_sync_oracle
       do i = 1, 4
          mask8 = patt(:, i)
          call run_sync(k, s, 0, 8, 15, 10.0/real(sum(mask8)), mask8, 2, 1500.0, 0, 0, 1.0)
+      enddo
+      ! mskrtd's four patterns with a small user ntol: ntol/deltaf in [0.5, 1.5) gives nint = 1, so nfreqs = 3
+      ! (2*1+1) trial frequencies, fewer than the OpenMP library's four threads; ntol 2 and 3 over deltaf 2.5, 2.0
+      ! and 1.43 (ratios 0.8, 1.2; 1.0, 1.5; 1.4, 2.1), ntol 1 over them (0.4, 0.5, 0.7)
+      do i = 1, 4
+         mask8 = patt(:, i)
+         do j = 1, 3
+            call run_sync(k, s, 0, 8, j, 10.0/real(sum(mask8)), mask8, 2, 1500.0, 0, 0, 1.0)
+         enddo
       enddo
    enddo
    s = sdec1
@@ -299,6 +331,69 @@ contains
       ii = 0
       call analytic(dd, NZ, NF, c, pcc, bq)
    end subroutine block_analytic
+
+   ! a slice of 7168 points: the analytic signal of the MSK frame of these 77 bits repeated from point `start` on at
+   ! 1500 Hz (the frame's samples are the half-sine pulses of genmsk_128_90's xi and xq, c = xi + j xq, times
+   ! sqrt 2 for unit rms of the real signal), with Gaussian noise of this sigma on each part; a new slice
+   subroutine synth_slice(mbits, sigma, start)
+      character(len=*) :: mbits
+      real :: sigma
+      integer :: start
+      integer*1 :: m(77), cwk(128), bitseq(144), s8(8)
+      real :: pp(12), xi(NSPM), xq(NSPM), ang, zr, zi
+      complex :: cf(NSPM), z(NZ)
+      integer :: ii, jj, is
+      data s8 /0, 1, 1, 1, 0, 0, 1, 0/
+      read(mbits, '(77i1)') m
+      call encode_128_90(m, cwk)
+      bitseq(1:8) = s8
+      bitseq(9:56) = cwk(1:48)
+      bitseq(57:64) = s8
+      bitseq(65:144) = cwk(49:128)
+      bitseq = 2*bitseq - 1
+      do ii = 1, 12
+         pp(ii) = real(sin(dble(ii - 1)*3.14159265358979d0/12.0d0))
+      enddo
+      xq = 0.0; xi = 0.0
+      xq(1:6) = real(bitseq(1))*pp(7:12)
+      do ii = 1, 71
+         is = (ii - 1)*12 + 7
+         xq(is:is + 11) = real(bitseq(2*ii + 1))*pp
+      enddo
+      xq(864 - 5:864) = real(bitseq(1))*pp(1:6)
+      do ii = 1, 72
+         is = (ii - 1)*12 + 1
+         xi(is:is + 11) = real(bitseq(2*ii))*pp
+      enddo
+      cf = cmplx(xi, xq)
+      do ii = 1, NZ
+         jj = mod(ii - start + 864*10, 864) + 1
+         ang = real(mod(6.283185307179586d0*1500.0d0*dble(ii - 1)/12000.0d0, 6.283185307179586d0))
+         z(ii) = 1.4142135*cf(jj)*cmplx(cos(ang), sin(ang))
+         zr = real(z(ii)); zi = aimag(z(ii))
+         if (ii < start) then
+            zr = 0.0; zi = 0.0
+         endif
+         zr = zr + sigma*sgauss()
+         zi = zi + sigma*sgauss()
+         z(ii) = cmplx(zr, zi)
+      enddo
+      nslice = nslice + 1
+      sl(1:NZ, nslice) = z
+      call print_slice(nslice, sl(1,nslice), NZ)
+   end subroutine synth_slice
+
+   ! the synthetic slices' noise: a sum of 12 uniforms less 6, from a 32-bit LCG (seed 4242)
+   real function sgauss()
+      real*8 :: t
+      integer :: kk
+      t = -6.0d0
+      do kk = 1, 12
+         sst = mod(sst*1664525_8 + 1013904223_8, 4294967296_8)
+         t = t + real(sst, 8)/4294967296.0d0
+      enddo
+      sgauss = real(t)
+   end function sgauss
 
    subroutine add_slice(ks, c)
       integer :: ks
@@ -421,7 +516,7 @@ contains
       complex, allocatable :: cbig(:)
       complex :: ct1(NSPM), ct2(NSPM)
       real :: sb1(144), sb2(144), fr1, fr2, tr1, tr2
-      integer :: na1, na2, ns1_, ns2_, ntr
+      integer :: na1, na2, ns1_, ns2_
       character(len=37) :: m1, m2
       kk = kk + 1
       kc = kk
@@ -436,13 +531,13 @@ contains
       na1 = -1; na2 = -1
       m1 = 'unset'; m2 = 'unset'
       call msk144spd_trace(cbig, n, ntol, ns1_, m1, fc, fr1, tr1, na1, ct1, sb1)
-      ntr = nframe
       call msk144spd(cbig, n, ntol, ns2_, m2, fc, fr2, tr2, na2, ct2, sb2)
       if (ns1_ /= ns2_ .or. m1 /= m2 .or. transfer(fr1, 0) /= transfer(fr2, 0) .or. transfer(tr1, 0) /= transfer(tr2, 0) &
           .or. na1 /= na2 .or. any(transfer(sb1, (/0/)) /= transfer(sb2, (/0/)))) &
          error stop 'oracle: msk144spd_trace differs from msk144spd'
-      ! ct: the library's is changed by the frame decoder (in place), the copy's is not: compared when none ran
-      if (ntr == 0 .and. any(transfer(ct1, (/0/)) /= transfer(ct2, (/0/)))) &
+      ! ct: both are corrected in place by the frame decoder (msk144_frame_hook gives it the frame itself), so they
+      ! agree on every case, success or failure, whether or not a frame was cut
+      if (any(transfer(ct1, (/0/)) /= transfer(ct2, (/0/)))) &
          error stop 'oracle: msk144spd_trace differs from msk144spd (ct)'
       write(*, '(a,1x,i0,1x,i0,a,a,a,2(1x,z8.8),1x,i0)') 'X', kk, ns1_, ' |', m1, '|', transfer(fr1, 0), transfer(tr1, 0), na1
       call prr('U', kk, sb1, 144)
@@ -773,21 +868,20 @@ end subroutine hashr
 ! what the instrumented copy of msk144spd calls where the reference calls msk144decodeframe
 subroutine msk144_frame_hook(ct, softbits, msgreceived, nsuccess)
    implicit none
-   complex :: ct(864), ctc(864)
+   complex :: ct(864)
    real :: softbits(144), v(1728)
    character(len=37) :: msgreceived
    integer :: nsuccess, kc, nframe, j
    integer*8 :: h1, h2
    common /skcase/ kc, nframe
-   ! msk144decodeframe changes the frame it is given (the phase correction, in place): hash the frame as it came,
-   ! and give the decoder a copy, so that ct is what msk144spd cut, as the port's stand-in leaves it
+   ! msk144decodeframe changes the frame it is given (the phase correction, in place), as it does in the library's
+   ! msk144spd: hash the frame as it came, then give the decoder the frame itself: ct is left as the decoder left it
    do j = 1, 864
       v(2*j-1) = real(ct(j))
       v(2*j) = aimag(ct(j))
    enddo
    call hashr(v, 1728, h1, h2)
-   ctc = ct
-   call msk144decodeframe(ctc, softbits, msgreceived, nsuccess)
+   call msk144decodeframe(ct, softbits, msgreceived, nsuccess)
    nframe = nframe + 1
    write(*, '(a,1x,i0,1x,i0,2(1x,i0),1x,i0,a,a,a)') 'F', kc, nframe, h1, h2, nsuccess, ' |', msgreceived, '|'
 end subroutine msk144_frame_hook

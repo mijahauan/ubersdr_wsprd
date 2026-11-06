@@ -4,11 +4,13 @@
 // it, the results from src/msk144_sync.cpp instead (the trace lines through
 // the port's hooks). The two outputs must be identical byte for byte.
 //
-// msk144spd's frame decoder is not in the port yet: the driver stands in for
-// it with the reference's answers, which the oracle printed (F lines: a hash
-// of the frame it was given, and what the decoder answered; U: the softbits
-// it left). The hashes in the driver's own F lines come from the frames the
-// port cut, so a wrong frame shows.
+// msk144spd's frame decoder is the port's own (src/msk144_decode.cpp): it
+// decodes the frames the port's msk144spd cuts, in place as the reference's
+// does, and the F lines (a hash of the frame it was given, and what the
+// decoder answered), the X, U (softbits) and V (ct) lines after each
+// msk144spd are all the port's: a wrong frame, answer, softbits, ct or
+// msgreceived shows. One Packjt77 serves the whole run, as the reference's
+// module packjt77 does.
 //
 // License: GNU GPL v3 (as WSJT-X)
 #include <algorithm>
@@ -25,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "msk144_decode.h"
 #include "msk144_sync.h"
 
 namespace {
@@ -155,37 +158,14 @@ void make_input(int s, int off, int n, int nanidx, int infidx, float scale, cflo
     if (infidx < 0) c[-infidx - 1] = cfloat(1.0e20f, c[-infidx - 1].imag());
 }
 
-struct FRec {
-    int nsuccess;
-    std::string msg;  // 37 characters
-};
-
 }  // namespace
 
 int main() {
-    // the oracle's whole output: the F and U lines of each msk144spd case are what the stand-in decoder replays
+    // the oracle's whole output (its F, U and V lines, and the like, are what the port's own lines are compared with)
     std::vector<std::string> lines;
     std::string line;
-    std::map<int, std::vector<FRec>> frecs;
-    std::map<int, std::vector<float>> usoft;
-    while (std::getline(std::cin, line)) {
-        lines.push_back(line);
-        std::istringstream is(line);
-        std::string tag;
-        is >> tag;
-        if (tag == "F") {
-            int k, j, ns;
-            std::string h1, h2;
-            is >> k >> j >> h1 >> h2 >> ns;
-            const size_t bar = line.find('|');
-            const size_t bar2 = line.rfind('|');
-            frecs[k].push_back({ns, line.substr(bar + 1, bar2 - bar - 1)});
-        } else if (tag == "U") {
-            int k;
-            is >> k;
-            store(line, usoft[k]);
-        }
-    }
+    while (std::getline(std::cin, line)) lines.push_back(line);
+    msk144::Packjt77 pk;
 
     msk144::sync_trace.consts = t_sync_consts;
     msk144::sync_trace.peak = t_sync_peak;
@@ -309,8 +289,6 @@ int main() {
             std::memcpy(msg, "unset", 5);
             kcase = k;
             int nframe = 0;
-            const std::vector<FRec>& recs = frecs[k];
-            const std::vector<float>& us = usoft[k];
             const msk144::DecodeSink sink = [&](cfloat* c, float* softbits, char* msgreceived, int& ns) {
                 std::vector<float> v(2 * NSPM);
                 for (int j = 0; j < NSPM; ++j) {
@@ -320,18 +298,9 @@ int main() {
                 uint64_t h1, h2;
                 hashr(v.data(), 2 * NSPM, h1, h2);
                 ++nframe;
-                // the reference's answer to this call, or none if the port asked more often
-                ns = 0;
-                std::string m(37, ' ');
-                if (static_cast<size_t>(nframe) <= recs.size()) {
-                    ns = recs[nframe - 1].nsuccess;
-                    m = recs[nframe - 1].msg;
-                }
-                m.resize(37, ' ');
-                std::memcpy(msgreceived, m.data(), 37);
-                for (size_t j = 0; j < us.size() && j < 144; ++j) softbits[j] = us[j];
-                std::printf("F %d %d %llu %llu %d |%s|\n", kcase, nframe, static_cast<unsigned long long>(h1),
-                            static_cast<unsigned long long>(h2), ns, m.c_str());
+                msk144::msk144decodeframe(pk, c, softbits, msgreceived, ns);
+                std::printf("F %d %d %llu %llu %d |%.37s|\n", kcase, nframe, static_cast<unsigned long long>(h1),
+                            static_cast<unsigned long long>(h2), ns, msgreceived);
             };
             msk144::msk144spd(cbig.data(), n, ntol, nsuccess, msg, float_of(fchex), fret, tret, navg, ct.data(), sb.data(), sink);
             std::printf("X %d %d |%.37s| %08X %08X %d\n", k, nsuccess, msg, bits_of(fret), bits_of(tret), navg);
