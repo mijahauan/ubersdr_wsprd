@@ -30,10 +30,21 @@ std::string blank37() { return std::string(37, ' '); }
 
 }  // namespace
 
-// ---- mskrtd.f90:1-241 (bshmsg, btrain and bswl false: msk40spd, lines 129-134, and the bswl branch, lines 221-237,
-// are Task 7's)
+// ---- mskrtd.f90:243-261 (update_recent_shmsgs)
+static void update_recent_shmsgs(const std::string& message, std::array<std::string, RtdState::NSHMEM>& msgs) {
+    bool seen = false;
+    for (const std::string& m : msgs)
+        if (m == message) seen = true;
+    if (!seen) {
+        for (int i = RtdState::NSHMEM; i >= 2; --i) msgs[static_cast<size_t>(i - 1)] = msgs[static_cast<size_t>(i - 2)];
+        msgs[0] = message;
+    }
+}
+
+// ---- mskrtd.f90:1-241 (btrain false; msk40spd at lines 129-134, the bswl branch at 221-237)
 std::string mskrtd(RtdState& st, packjt77::Packjt77& pk, const int16_t* id2, int nutc0, float tsec, int ntol,
-                   int nrxfreq, int ndepth, const std::string& mycall12, const std::string& hiscall12) {
+                   int nrxfreq, int ndepth, const std::string& mycall12, const std::string& hiscall12, bool bshmsg,
+                   bool bswl) {
     // data iavpatterns/ 1,1,1,1,0,0,0,0, 0,0,1,1,1,1,0,0, 1,1,1,1,1,0,0,0, 1,1,1,1,1,1,1,0/, (8,NPATTERNS)
     static const int iavpatterns[NPATTERNS][8] = {{1, 1, 1, 1, 0, 0, 0, 0},
                                                   {0, 0, 1, 1, 1, 1, 0, 0},
@@ -58,7 +69,7 @@ std::string mskrtd(RtdState& st, packjt77::Packjt77& pk, const int16_t* id2, int
     int ndecodesuccess = 0;
     float fest = 0.0f, tdec = 0.0f;
     int navg = 0;
-    bool bshdecode = false;  // bshmsg and bswl are false: msk40spd is never tried
+    bool bshdecode = false;
     std::string line;
 
     if (st.first) {  // lines 59-80
@@ -67,6 +78,7 @@ std::string mskrtd(RtdState& st, packjt77::Packjt77& pk, const int16_t* id2, int
         st.pnoise = -1.0f;
         pk.blank_recent_calls();  // recent_calls(i)(1:13)=' '
         st.msglast = blank37();
+        for (std::string& m : st.recent_shmsgs) m = blank37();  // recent_shmsgs(i)(1:37)=' '
         st.msglastswl = blank37();
         st.nsnrlast = -99;
         st.nsnrlastswl = -99;
@@ -131,6 +143,10 @@ std::string mskrtd(RtdState& st, packjt77::Packjt77& pk, const int16_t* id2, int
     const DecodeSink sink = [&pk](cfloat* cc, float* sb, char* mg, int& ns) { msk144decodeframe(pk, cc, sb, mg, ns); };
     msk144spd(cdat, np, ntol, ndecodesuccess, msgreceived, fc, fest, tdec, navg, ct, softbits, sink);
     bool decoded = false;
+    if (ndecodesuccess == 0 && (bshmsg || bswl)) {
+        msk40spd(st.m40, pk, cdat, np, ntol, mycall, hiscall, bswl, ndecodesuccess, msgreceived, fc, fest, tdec, navg);
+        if (ndecodesuccess >= 1) bshdecode = true;
+    }
     if (ndecodesuccess >= 1) {
         tdec = tsec + tdec;
         decoded = true;
@@ -208,10 +224,22 @@ std::string mskrtd(RtdState& st, packjt77::Packjt77& pk, const int16_t* id2, int
     if (bflag) {
         st.msglast = msgstr;
         st.nsnrlast = nsnr;
-        // (update_msk40_hasharray(nhasharray): MSK40's table, Task 7)
+        if (!bshdecode) update_msk40_hasharray(st.m40, pk);
         // 1021 format(i6.6,i4,f5.1,i5,a4,a37,a1)
         line = fst4w::fortran_i(nutc0, 6, 6) + fst4w::fortran_i(nsnr, 4) + fst4w::fortran_f(tdec, 5, 1) +
                fst4w::fortran_i(nint_f(fest), 5) + decsym + msgstr;
+    } else if (bswl && ndecodesuccess >= 2) {
+        bool seenb4 = false;
+        for (const std::string& m : st.recent_shmsgs)
+            if (msgstr == m) seenb4 = true;
+        update_recent_shmsgs(msgstr, st.recent_shmsgs);
+        const bool bflag2 = seenb4 && (msgstr != st.msglastswl || nsnr > st.nsnrlastswl || tsec < st.tsec0) && nsnr > -6;
+        if (bflag2) {
+            st.msglastswl = msgstr;
+            st.nsnrlastswl = nsnr;
+            line = fst4w::fortran_i(nutc0, 6, 6) + fst4w::fortran_i(nsnr, 4) + fst4w::fortran_f(tdec, 5, 1) +
+                   fst4w::fortran_i(nint_f(fest), 5) + decsym + msgstr;
+        }
     }
     st.tsec0 = tsec;  // 999
     return line;
@@ -219,7 +247,8 @@ std::string mskrtd(RtdState& st, packjt77::Packjt77& pk, const int16_t* id2, int
 
 // ---- decode_msk144.f90:1-88
 int decode_msk144(RtdState& st, packjt77::Packjt77& pk, const int16_t* audio, long nsamples, int nutc, int ntr, int ntol,
-                  int nfqso, int ndepth, const std::string& mycall12, const std::string& hiscall12, std::ostream& out) {
+                  int nfqso, int ndepth, const std::string& mycall12, const std::string& hiscall12, bool bshmsg, bool bswl,
+                  std::ostream& out) {
     constexpr int SAMPLING_RATE = 12000, BLOCK_SIZE = 7168, STEP_SIZE = BLOCK_SIZE / 2;
     int message_count = 0;
     // decode in 0.3s blocks
@@ -232,7 +261,8 @@ int decode_msk144(RtdState& st, packjt77::Packjt77& pk, const int16_t* audio, lo
             buffer[static_cast<size_t>(i)] = j < nsamples ? audio[j] : static_cast<int16_t>(0);
         }
         const float tsec = static_cast<float>(position) / static_cast<float>(SAMPLING_RATE);
-        std::string line = mskrtd(st, pk, buffer.data(), nutc, tsec, ntol, nfqso, ndepth, mycall12, hiscall12);
+        std::string line = mskrtd(st, pk, buffer.data(), nutc, tsec, ntol, nfqso, ndepth, mycall12, hiscall12, bshmsg,
+                                    bswl);
         // line(1:1).ne.char(0): a line was made. line = line(1:index(line,char(0))-1), write(*,1001) line, a80
         if (!line.empty()) {
             line.push_back('\0');  // the format's a1 char(0), then blank to the 80 of `line`

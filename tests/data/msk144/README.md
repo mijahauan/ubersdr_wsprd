@@ -60,10 +60,11 @@ own paths.
 `-Y` is jt9's FST4W switch; `--msk144` after it wins, as the last mode does.
 `shmsg` and `swl` exist for the samples, the real slot, the SNR sweep, the
 message types, the pings, the MSK40 cases, the two `msk144sim` cases, silence,
-noise and the clipped file. Our jt9 does not take `--msk-shmsg` and
-`--msk-swl` yet: `jt9-compare.sh` and `jt9-wine-check.sh` skip those two
-variants until its usage lists them, then check them against the stored
-outputs (the reference has no such option to run beside).
+noise and the clipped file. Our jt9 takes `--msk-shmsg` and `--msk-swl` (long
+options only, off by default; Task 7): the reference has no such option to run
+beside, so `jt9-compare.sh` and `jt9-wine-check.sh` check those two variants
+against the stored outputs, and run them against any jt9 whose usage lists
+both options.
 
 ## Task 6's cases (`scripts/msk144-oracle.sh focus`)
 
@@ -84,6 +85,8 @@ runs `--feed` with `stdin.txt` (paths from the repository's root) as stdin.
 | `ntol-wide`           | `-F 300`, `1000`, `1001`, `5000` on a -200 Hz offset (jt9.f90 limits `-F` to 1000); the `f2000` runs of `freq-edge` cover `-F` above 1000 from the other side |
 | `freq-edge`           | `-f 0`, `200`, `800`, `1801`, `1802`, `1803`, `2000`, `6000`, `9000` with `-F` 200 to 5000, on an 800 Hz carrier. `-f 1801`, `1802` and `1803` (each with `-F 5000`) sit 1001, 1002 and 1003 Hz from the carrier, where a limit of 1001 would answer differently; `-f 2000` (with `-F 5000` and `-F 1000`) is 1200 Hz away, past what the limit of 1000 reaches |
 | `offgrid-sm06`, `offgrid-sm04` | `d1`, `d3`: a 1 s ping at -6 dB and at -4 dB on a 1537 Hz carrier, which lies on none of the averaging searches' frequency grids: `-d 1` (short pings only) misses it and `-d 3` (the averages) finds it, so msk144sync's step of 10/navg Hz shows |
+| `swl-state` (Task 7) | `files`, `feed`: `--msk-swl` on three files: three pings of the MSK40 frame `<N0ABC W1AW> RRR`, a standard message from `N0ABC` to `W1AW`, the MSK40 file again. The reference (one process a file, patched build with `MSK144_SWL=1`) prints `<1591> RRR` for both MSK40 files: its table of recent-call hashes is empty at the start of each. A port that kept the table of hashes (but not the calls, which each file starts without) from the middle file into the last would print `< > RRR` there |
+| `swl-pair` (Task 7) | `swl`: `--msk-swl` on one file: the standard message at 5 s, which gives the decoder `N0ABC` and `W1AW`, and the MSK40 pings of `<N0ABC W1AW> RRR` around it. The ping before it prints as `<1591> RRR`, the one after it by the pair's calls: the table of recent-call hashes is made when the standard message decodes |
 
 Their inputs are listed in `recordings/msk144-sim/MANIFEST.focus` (made by
 `scripts/msk144-sim-grid.sh`, which gives `corpus` no variants on them).

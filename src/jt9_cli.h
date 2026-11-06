@@ -34,6 +34,10 @@
 // --fast-subtract (FT8, FT4, FT2: ft_fast_subtract.h, not WSJT-X's to the
 // bit, its decodes); -w as WSJT-X's four2a takes it (fft.h), a -w other than 1
 // keeping its own jt9_wisdom-wN.dat;
+// --msk-shmsg and --msk-swl (MSK144's MSK40 short messages, WSJT-X's bshmsg,
+// and its SWL mode, bswl: long options alone, off by default, as jt9 has them
+// off; each is what the patched reference of scripts/msk144-oracle.sh does
+// with MSK144_SHMSG and MSK144_SWL);
 // --spread fast|exact|off (FST4W's dopspread: fast by default,
 // exact for WSJT-X's byte for byte; a long option alone, taking its one
 // value); -v's line. Still apart: FST4W's -c and -x only standard calls

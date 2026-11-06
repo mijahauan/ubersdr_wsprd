@@ -8,7 +8,8 @@
 #   scripts/msk144-oracle.sh build         the three builds, the two-build check
 #   scripts/msk144-oracle.sh corpus        inputs, the cases run, fixtures stored
 #   scripts/msk144-oracle.sh focus         Task 6's cases (repeat-across-files, lastmode-*,
-#                                          ntol-wide, freq-edge), one reference process a file
+#                                          ntol-wide, freq-edge, off-grid) and Task 7's swl-state and swl-pair, one
+#                                          reference process a file
 #   scripts/msk144-oracle.sh all           build, corpus and focus
 #   scripts/msk144-oracle.sh --print-env   the paths a later step sources
 #   scripts/msk144-oracle.sh fortran FILE.f90 [NAME [omp]]
@@ -68,7 +69,10 @@ fcompile() {
     if [[ $variant == omp ]]; then lib=libwsjt_fort_omp.a mods=fortran_modules_omp omp=(-fopenmp); fi
     o=$(mktemp -d "$work/fc.XXXXXX")
     read -r -a fflags <<< "$(sed -n 's/^Fortran_FLAGS = //p' "$b/CMakeFiles/msk144sim.dir/flags.make")"
-    (cd "$b" && gfortran "${fflags[@]}" "${omp[@]}" -Wno-intrinsic-shadow -I $mods -I "$src/lib" -J "$o" \
+    # -fallow-argument-mismatch: lib/msk40spd.f90 leaves nhasharray undeclared (a scalar by implicit typing) and
+    # passes the array mskrtd gave it on to msk40decodeframe, which declares it 10 by 10: the reference's files
+    # are separate and compile; an oracle that holds copies of both in one file is told of the mismatch
+    (cd "$b" && gfortran "${fflags[@]}" "${omp[@]}" -fallow-argument-mismatch -Wno-intrinsic-shadow -I $mods -I "$src/lib" -J "$o" \
             -c "$f" -o "$o/main.o" &&
         c++ -fopenmp -pthread "$o/main.o" -o "$out" $lib libwsjt_cxx.a -lm \
             /usr/lib/$(gcc -dumpmachine)/libboost_{log_setup,log,chrono,filesystem,regex,thread,atomic}.so.1.83.0 \
@@ -308,18 +312,29 @@ focus)
     edge=$(ls "$repo/$sim"/freq-edge-f0800-*.wav | sed "s|^$repo/||")
     og6=$(ls "$repo/$sim"/offgrid-f1537-sm06-*.wav | sed "s|^$repo/||")
     og4=$(ls "$repo/$sim"/offgrid-f1537-sm04-*.wav | sed "s|^$repo/||")
+    swla=$(ls "$repo/$sim"/swl-state-a-*.wav | sed "s|^$repo/||")
+    swlb=$(ls "$repo/$sim"/swl-state-b-*.wav | sed "s|^$repo/||")
+    swlp=$(ls "$repo/$sim"/swl-pair-*.wav | sed "s|^$repo/||")
     early=$(ls "$repo/$sim"/early-ping-*.wav | sed "s|^$repo/||")
     B="-a . -k -p 15 -f 1500 -F 200 -d 3"
 
     # one_run DIR ARGS...: the reference, once, in DIR; its stdout with the
-    # repository's directory taken out of the paths
+    # repository's directory taken out of the paths. --msk-shmsg and --msk-swl are our options, not the
+    # reference's: the patched build runs, with MSK144_SHMSG=1 and MSK144_SWL=1 (as the corpus step does)
     one_run() {
         local dir=$1; shift
         rm -rf "$dir"; mkdir -p "$dir"
-        local argv=() tok
-        for tok in "$@"; do case $tok in recordings/*) argv+=("$repo/$tok") ;; *) argv+=("$tok") ;; esac; done
+        local argv=() tok envs=() build=release
+        for tok in "$@"; do
+            case $tok in
+                recordings/*) argv+=("$repo/$tok") ;;
+                --msk-shmsg) envs+=(MSK144_SHMSG=1); build=patched ;;
+                --msk-swl) envs+=(MSK144_SWL=1); build=patched ;;
+                *) argv+=("$tok") ;;
+            esac
+        done
         set +e
-        (cd "$dir" && "$work/release/jt9" "${argv[@]}" > stdout.txt 2> stderr.txt < /dev/null)
+        (cd "$dir" && env "${envs[@]}" "$work/$build/jt9" "${argv[@]}" > stdout.txt 2> stderr.txt < /dev/null)
         echo $? > "$dir/status.txt"
         set -e
         sed -i "s|$repo/||g" "$dir/stdout.txt" "$dir/stderr.txt"
@@ -344,7 +359,7 @@ focus)
     # multi CASE VARIANT FILES...: one process a file, the outputs put end to end, as `jt9 B FILES` and
     # as `jt9 --feed B` print them
     multi() {
-        local case=$1 v=$2; shift 2
+        local case=$1 v=$2 B=${MULTI_B:-$B}; shift 2
         local files=("$@") i=0 f d n
         local cat=$work/focus-run/$case-$v.files cfeed=$work/focus-run/$case-$v.feed
         rm -rf "$work/focus-run/$case-$v" "$cat" "$cfeed"; mkdir -p "$work/focus-run/$case-$v"
@@ -372,7 +387,7 @@ focus)
         return 0
     }
     rm -rf "$work/focus-run"; mkdir -p "$work/focus-run"
-    rm -rf "$data"/cases/{repeat-across-files,lastmode-Y,lastmode-8,ntol-wide,freq-edge,offgrid-sm06,offgrid-sm04}
+    rm -rf "$data"/cases/{repeat-across-files,lastmode-Y,lastmode-8,ntol-wide,freq-edge,offgrid-sm06,offgrid-sm04,swl-state,swl-pair}
 
     # a decode in the first block twice (its SNR, with no noise level yet, shows state kept from the file before),
     # the same decode further in twice, then a hashed call that the first file's earlier message resolves and a
@@ -392,12 +407,19 @@ focus)
              "1801 5000" "1802 5000" "1803 5000"; do
         set -- $a; single freq-edge "f$1-F$2" "$edge" -a . -k -p 15 -f $1 -F $2 -d 3
     done
+    # SWL mode across files (Task 7): the MSK40 pair hash of the first decode must not outlive its file. The
+    # first and last files hold the MSK40 pings alone; the middle one the standard message that gives the
+    # pair. One process a file, the reference's table is always fresh; a port that kept it would print the
+    # last file's line another way
+    MULTI_B="$B --msk-swl" multi swl-state all "$swlb" "$swla" "$swlb"
+    # and within one file: the standard message at 5 s, then the MSK40 pings at 7 s and 11 s that its calls explain
+    single swl-pair swl "$swlp" $B --msk-swl
     # an off-grid carrier: -d 1 (short pings only) and -d 3 (the averages too)
     for d in 1 3; do
         single offgrid-sm06 d$d "$og6" -a . -k -p 15 -f 1500 -F 200 -d $d
         single offgrid-sm04 d$d "$og4" -a . -k -p 15 -f 1500 -F 200 -d $d
     done
-    echo "msk144-oracle: focus: $(ls -d "$data"/cases/{repeat-across-files,lastmode-Y,lastmode-8,ntol-wide,freq-edge,offgrid-sm06,offgrid-sm04}/jt9-* | wc -l) runs stored" >&2
+    echo "msk144-oracle: focus: $(ls -d "$data"/cases/{repeat-across-files,lastmode-Y,lastmode-8,ntol-wide,freq-edge,offgrid-sm06,offgrid-sm04,swl-state,swl-pair}/jt9-* | wc -l) runs stored" >&2
     ;;
 
 # ---------------------------------------------------------------- fortran

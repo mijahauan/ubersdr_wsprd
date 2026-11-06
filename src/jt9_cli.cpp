@@ -74,6 +74,13 @@ const Opt OPTS[] = {
      "with one decoder for all, as one jt9 -s does period after period; after each file's lines and "
      "<DecodeFinished>, <FileDone> PATH N",
      ""},
+    {"msk-shmsg", false, 0,
+     "Ours (MSK144): also decode MSK40 short messages (WSJT-X's bshmsg), \"<MYCALL HISCALL> RPT\"; off by default, as in WSJT-X's jt9",
+     ""},
+    {"msk-swl", false, 0,
+     "Ours (MSK144): SWL mode (WSJT-X's bswl): also decode MSK40 messages for any pair of calls heard, and \"<HHHH> RPT\" "
+     "for a hash that no call explains; off by default, as in WSJT-X's jt9",
+     ""},
     {"spread", true, 0,
      "FST4W's spread (w50): fast (default: within 0.0001 Hz of jt9's, several times cheaper), exact (jt9's, "
      "bit for bit) or off (none)",
@@ -345,6 +352,14 @@ int run(const std::vector<std::string>& args, const std::string& cwd, std::ostre
         }
         if (g.opt && !g.opt->chr && std::strcmp(g.opt->name, "feed") == 0) {
             feed = true;
+            continue;
+        }
+        if (g.opt && !g.opt->chr && std::strcmp(g.opt->name, "msk-shmsg") == 0) {
+            f8.msk_shmsg = true;
+            continue;
+        }
+        if (g.opt && !g.opt->chr && std::strcmp(g.opt->name, "msk-swl") == 0) {
+            f8.msk_swl = true;
             continue;
         }
         if (g.opt && !g.opt->chr) {  // --spread

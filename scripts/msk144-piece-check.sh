@@ -71,7 +71,18 @@
 # same order (the lines PK, RUN and QS). It also checks encode_128_90, genmsk_128_90,
 # fmtmsg and atan2 (the port's atan2f_glibc against the container's glibc 2.39).
 #
-# Pieces: ldpc frontend sync frame
+# msk40 (MSK40, WSJT-X's bshmsg: scripts/msk40-oracle.f90 and scripts/msk40-check.cpp, not msk144-msk40-*)
+# checks bpdecode40, encode_msk40, hash, update_msk40_hasharray, msk40decodeframe, msk40sync and msk40spd. The
+# oracle gets, appended, instrumented copies of the reference's lib/bpdecode40.f90, msk40decodeframe.f90,
+# msk40sync.f90 and msk40spd.f90 (sed: renamed *_trace, with calls that print the iterations' zn and tov, the
+# constants pp and cb, cca/phase0, cfac, c after the phase correction, the raw softbits, the sync errors, the
+# normalisation, llr, bpdecode40's answer, the hash comparison, msk40sync's constants and its c and xcc before the
+# peak search, msk40spd's constants, windows, steps, detection arrays and median, candidates and sync calls); every
+# case runs the copy and the library's routine and the oracle stops if their results differ. The driver's hooks
+# (msk40_trace in src/msk40.h) print the same. Like sync, the same oracle linked against the OpenMP library
+# (msk40sync then runs min(8, OMP_GET_MAX_THREADS()) threads) must print the same at 8 and at 4 threads.
+#
+# Pieces: ldpc frontend sync frame msk40
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -81,10 +92,12 @@ case $piece in
     frontend) sources="src/msk_frontend.cpp src/ft8_maths.cpp src/fft.cpp src/fft_wisdom.cpp" ;;
     sync) sources="src/msk144_sync.cpp src/msk144_decode.cpp src/msk144_ldpc.cpp src/ft8_ldpc.cpp src/wsprd_osd.cpp src/packjt77.cpp src/msk_frontend.cpp src/ft8_maths.cpp src/fft.cpp src/fft_wisdom.cpp" ;;
     frame) sources="src/msk144_decode.cpp src/msk144_ldpc.cpp src/ft8_ldpc.cpp src/wsprd_osd.cpp src/packjt77.cpp src/ft8_maths.cpp" ;;
+    msk40) sources="src/msk40.cpp src/msk144_sync.cpp src/msk144_decode.cpp src/msk144_ldpc.cpp src/ft8_ldpc.cpp src/wsprd_osd.cpp src/packjt77.cpp src/msk_frontend.cpp src/ft8_maths.cpp src/fft.cpp src/fft_wisdom.cpp" ;;
     *) sed -n '/^# Pieces:/p' "$0" | sed 's/^# //' >&2; exit 2 ;;
 esac
 oracle_src=$repo/scripts/msk144-$piece-oracle.f90
 driver_src=$repo/scripts/msk144-$piece-check.cpp
+[[ $piece == msk40 ]] && { oracle_src=$repo/scripts/msk40-oracle.f90; driver_src=$repo/scripts/msk40-check.cpp; }
 [[ -f $oracle_src && -f $driver_src ]] || { echo "msk144-piece-check: $piece has no oracle or driver" >&2; exit 2; }
 
 work=${MSK144_ORACLE_WORK:-${XDG_CACHE_HOME:-$HOME/.cache}/msk144-oracle}/piece-$piece
@@ -191,6 +204,52 @@ if [[ $piece == frame ]]; then
     cat "$oracle_src" "$work/trace-frame.f90" > "$oracle_full"
 fi
 
+if [[ $piece == msk40 ]]; then
+    lib=${WSJTX:-$HOME/repos/wsjtx}/lib
+    oracle_full=$work/msk40-oracle-traced.f90
+    # each sed's anchors are lines of the reference; the count of lines added is checked
+    sed -e 's/^subroutine bpdecode40(/subroutine bpdecode40_trace(/' \
+        -e 's/^end subroutine bpdecode40$/end subroutine bpdecode40_trace/' \
+        -e 's/^! Check to see if we have a codeword (check before we do any iteration)\.$/  call msk40_bp_iter(iter,zn,tov)\n&/' \
+        "$lib/bpdecode40.f90" > "$work/trace-bp.f90"
+    [[ $(diff "$lib/bpdecode40.f90" "$work/trace-bp.f90" | grep -c '^>') == 3 ]] ||
+        { echo "msk144-piece-check: the sed instrumentation did not apply to $lib/bpdecode40.f90" >&2; exit 1; }
+    sed -e 's/^subroutine msk40decodeframe(/subroutine msk40decodeframe_trace(/' \
+        -e 's/^end subroutine msk40decodeframe$/end subroutine msk40decodeframe_trace/' \
+        -e 's/^     first=\.false\.$/&\n     call msk40_df_consts(pp,cb)/' \
+        -e 's/^  phase0=atan2(imag(cca),real(cca))$/&\n  call msk40_df_phase(cca,phase0)/' \
+        -e 's/^  c=c\*conjg(cfac)$/&\n  call msk40_df_corr(cfac,c)/' \
+        -e 's/^! Sync word hard error weight is used to reject frames that $/  call msk40_df_soft(softbits)\n&/' \
+        -e 's/^  nbadsync=nbadsync1$/&\n  call msk40_df_sync(nbadsync1)/' \
+        -e 's/^  ssig=sqrt(s2av-sav\*sav)$/&\n  call msk40_df_norm(sav,s2av,ssig)/' \
+        -e 's/^  llr=2\.0\*llr\/(sigma\*sigma)$/&\n  call msk40_df_llr(sigma,llr)/' \
+        -e 's/^  call bpdecode40(llr,max_iterations,decoded,niterations)$/&\n  call msk40_df_bp(decoded,niterations)/' \
+        -e 's/^    nrxhash=(imsg-nrxrpt)\/16$/&\n    call msk40_df_msg(nhammd,cord,imsg,nrxrpt,nrxhash,ihash)/' \
+        "$lib/msk40decodeframe.f90" > "$work/trace-frame.f90"
+    [[ $(diff "$lib/msk40decodeframe.f90" "$work/trace-frame.f90" | grep -c '^>') == 11 ]] ||
+        { echo "msk144-piece-check: the sed instrumentation did not apply to $lib/msk40decodeframe.f90" >&2; exit 1; }
+    sed -e 's/^subroutine msk40sync(/subroutine msk40sync_trace(/' \
+        -e 's/^end subroutine msk40sync$/end subroutine msk40sync_trace/' \
+        -e 's/^     first=\.false\.$/&\n     call msk40_sync_consts(pp,cb)/' \
+        -e 's/^! Find npeaks largest peaks$/  call msk40_sync_peak(xmax,fest,c,xcc,nfreqs)\n&/' \
+        "$lib/msk40sync.f90" > "$work/trace-sync.f90"
+    [[ $(diff "$lib/msk40sync.f90" "$work/trace-sync.f90" | grep -c '^>') == 4 ]] ||
+        { echo "msk144-piece-check: the sed instrumentation did not apply to $lib/msk40sync.f90" >&2; exit 1; }
+    sed -e 's/^subroutine msk40spd(/subroutine msk40spd_trace(/' \
+        -e 's/^end subroutine msk40spd$/end subroutine msk40spd_trace/' \
+        -e 's/^     first=\.false\.$/&\n     call msk40_spd_consts(rcw)/' \
+        -e 's/^  i4000=nint(nfhi\/df)+1$/&\n  call msk40_spd_win(ihlo,ihhi,illo,ilhi,i2000,i4000)/' \
+        -e 's/^    detfer(istp)=ferr$/&\n    call msk40_spd_step(istp,ihpk,ilpk,deltah,deltal,ah,al,trath,tratl,ferr)/' \
+        -e 's/^  xmed=detmet(indices(nstep\/4))$/&\n  call msk40_spd_med(nstep,indices,xmed,detmet,detmet2,detfer)/' \
+        -e 's/^  npeaks=2$/  call msk40_spd_cands(ndet,nstart,ferrs,snrs)\n&/' \
+        -e 's/call msk40sync(cdat,3,/call msk40sync_trace(cdat,3,/' \
+        -e 's/^                     nsyncsuccess,c)$/&\n      call msk40_spd_sync(icand,iav,nsyncsuccess,fest,npkloc)/' \
+        "$lib/msk40spd.f90" > "$work/trace-spd.f90"
+    [[ $(diff "$lib/msk40spd.f90" "$work/trace-spd.f90" | grep -c '^>') == 9 ]] ||
+        { echo "msk144-piece-check: the sed instrumentation did not apply to $lib/msk40spd.f90" >&2; exit 1; }
+    cat "$oracle_src" "$work/trace-bp.f90" "$work/trace-frame.f90" "$work/trace-sync.f90" "$work/trace-spd.f90" > "$oracle_full"
+fi
+
 # the oracle
 oracle=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_full" "msk144-$piece-oracle")
 run_oracle "$oracle" "$work/oracle.out"
@@ -207,6 +266,17 @@ if [[ $piece == sync ]]; then
           diff "$work/oracle.out" "$work/oracle-omp.out" | head -10 >&2 || true; exit 1; }
 fi
 
+# msk40: the same, linked against the OpenMP library (msk40sync's team of min(8, max threads)) at 8 and at 4 threads
+if [[ $piece == msk40 ]]; then
+    oracle_omp=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_full" "msk144-$piece-oracle-omp" omp)
+    for nt in 8 4; do
+        run_oracle "$oracle_omp" "$work/oracle-omp$nt.out" env -u OMP_THREAD_LIMIT OMP_NUM_THREADS=$nt OMP_DYNAMIC=false
+        cmp -s "$work/oracle.out" "$work/oracle-omp$nt.out" ||
+            { echo "msk144-piece-check: msk40: the OpenMP library at $nt threads DIFFERS: diff $work/oracle.out $work/oracle-omp$nt.out" >&2
+              diff "$work/oracle.out" "$work/oracle-omp$nt.out" | head -10 >&2 || true; exit 1; }
+    done
+fi
+
 # the driver (no output file if the port is missing: the link fails)
 rm -f "$work/driver"
 "$cxx" "${flags[@]}" "$driver_src" "${srcs[@]}" -lfftw3f -lm -lpthread -o "$work/driver"
@@ -220,6 +290,10 @@ if cmp -s "$work/oracle.out" "$work/driver.out"; then
     fi
     if [[ $piece == frame ]]; then
         echo "msk144-piece-check: frame: identical ($(wc -l < "$work/oracle.out") lines: $(grep -c '^RUN' "$work/oracle.out") frames, $(grep -c '^R .* [1-9][0-9]* |' "$work/oracle.out") decoded, $(grep -c '^QS' "$work/oracle.out") signal-quality runs, $(grep -c '^KD' "$work/oracle.out") LDPC runs, $(grep -c '^EN' "$work/oracle.out") encodes, $(grep -c '^GM' "$work/oracle.out") genmsk, $(grep -c '^FM' "$work/oracle.out") fmtmsg, $(grep -c '^AV' "$work/oracle.out") atan2 values and $(grep -c '^AT' "$work/oracle.out") atan2 sweeps)"
+        exit 0
+    fi
+    if [[ $piece == msk40 ]]; then
+        echo "msk144-piece-check: msk40: identical, and the OpenMP library at 8 and at 4 threads the same ($(wc -l < "$work/oracle.out") lines: $(grep -c '^BI' "$work/oracle.out") bpdecode40 runs ($(grep -c '^BD [0-9]* [0-9]' "$work/oracle.out") decoded), $(grep -c '^RUN' "$work/oracle.out") msk40decodeframe runs ($(grep -c '^R [0-9]* [1-3] ' "$work/oracle.out") decoded), $(grep -c '^YP' "$work/oracle.out") msk40sync runs ($(grep -c '^YA [0-9]* 1 ' "$work/oracle.out") syncs), $(grep -c '^ZP' "$work/oracle.out") msk40spd runs ($(grep -c '^X [0-9]* [1-3] ' "$work/oracle.out") decoded), $(grep -c '^HA' "$work/oracle.out") hashes, $(grep -c '^NH' "$work/oracle.out") hash arrays)"
         exit 0
     fi
     if [[ $piece == sync ]]; then

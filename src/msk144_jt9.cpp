@@ -20,6 +20,7 @@ namespace {
 struct Params {
     int ntr, ntol, nfqso, ndepth;
     std::string mycall, hiscall;
+    bool shmsg, swl;  // ours: --msk-shmsg, --msk-swl (bshmsg, bswl; false in WSJT-X's jt9)
 };
 
 Params params_of(const ft8::FileMode& fm) {
@@ -35,6 +36,8 @@ Params params_of(const ft8::FileMode& fm) {
     p.ndepth = fm.ndepth;
     p.mycall = mycall;
     p.hiscall = hiscall;
+    p.shmsg = fm.msk_shmsg;
+    p.swl = fm.msk_swl;
     return p;
 }
 
@@ -84,7 +87,7 @@ bool decode_file(RtdState& st, const Params& p, const ft8::FileMode& fm, const s
     st.reset();
     msk144_reset_packjt77();
     n = decode_msk144(st, pk, id2.data(), static_cast<long>(id2.size()), nutc, p.ntr, p.ntol, p.nfqso, p.ndepth,
-                      p.mycall, p.hiscall, out);
+                      p.mycall, p.hiscall, p.shmsg, p.swl, out);
 
     // The "normal decoding pass": multimode_decoder, which for MSK144 opens decoded.txt once the rms of
     // id2(1:180000) reaches 0.5 and says <DecodeFinished> 0 0 0 (decoder.f90:104-107)

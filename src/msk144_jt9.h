@@ -15,7 +15,8 @@
 //
 // The options are FT8's (ft8::FileMode, read by jt9_cli.h); MSK144 reads
 // -p, -f, -F, -d, -c, -x, -t, -q (and -g, -G, -L, -H, -Q, -X only as jt9
-// checks them).
+// checks them), and ours alone: --msk-shmsg (MSK40 short messages, WSJT-X's
+// bshmsg) and --msk-swl (its bswl), both off by default, as they are in jt9.
 //
 // jt9.f90, jt9_params_init.f90, decode_msk144.f90, mskrtd.f90: Joe Taylor,
 // K1JT, and the WSJT-X developers (GNU GPL v3), and so is this.

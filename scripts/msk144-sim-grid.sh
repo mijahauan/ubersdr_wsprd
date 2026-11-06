@@ -127,6 +127,14 @@ fi
 #       before it would show in the SNR
 #   freq-edge-f0800: the carrier at 800 Hz, +8 dB: -f and -F reach it from
 #       the band's lower edge (-f 200 -F 700, -f 0, a window cut at 0 Hz)
+#   swl-state-a, swl-state-b (Task 7): a ping of "N0ABC W1AW EN34" at +10 dB, and three
+#       pings of the MSK40 frame "<N0ABC W1AW> RRR" at +8 dB (jt9's calls are K1ABC
+#       and W9XYZ, so the hash is none the decoder is asked for). Run with
+#       --msk-swl, file a then file b: the pair's hash is in the SWL table only
+#       if the table survives from the first file to the second
+#   swl-pair: the two samples added, as hash-ab is: the standard message at 5 s
+#       gives the decoder both calls, and the MSK40 pings at 7 s and 11 s are then
+#       "<N0ABC W1AW> RRR" by the pair's hash (the ping at 2 s came first: "<hhhh>")
 focus=$out/MANIFEST.focus; : > "$focus"
 genf() { gen "$@"; tail -n 1 "$manifest" >> "$focus"; sed -i '$d' "$manifest"; }
 genf "hash-a" 15 10 0.2 3 1500 "K1ABC W9XYZ EN37"
@@ -151,4 +159,22 @@ genf "freq-edge-f0800" 15 8 0.2 5 800 "$M"
 genf "early-ping" 15 10 0.2 0.15 1500 "$M"
 genf "offgrid-f1537-sm06" 15 -6 1 5 1537 "$M"
 genf "offgrid-f1537-sm04" 15 -4 1 5 1537 "$M"
+genf "swl-state-a" 15 10 0.2 5 1500 "N0ABC W1AW EN34"
+genf "swl-state-b" 15 8 0.2 2,7,11 1500 "<N0ABC W1AW> RRR"
+n=$((n + 1))
+stem=$(printf 'swl-pair-261106_12%02d%02d' $((n / 60)) $((n % 60)))
+python3 -I - "$out" "$(tail -n 2 "$focus" | head -n 1 | cut -d' ' -f1)" "$(tail -n 1 "$focus" | cut -d' ' -f1)" "$stem" <<'PYEOF'
+import struct, sys
+out, a, b, stem = sys.argv[1:5]
+def rd(name):
+    d = open(f"{out}/{name}.wav", "rb").read()
+    i = d.index(b"data")
+    n = struct.unpack("<I", d[i + 4:i + 8])[0] // 2
+    return d[:i + 8], struct.unpack(f"<{n}h", d[i + 8:i + 8 + 2 * n])
+h, x = rd(a)
+_, y = rd(b)
+z = [max(-32768, min(32767, p + q)) for p, q in zip(x, y)]
+open(f"{out}/{stem}.wav", "wb").write(h + struct.pack(f"<{len(z)}h", *z))
+PYEOF
+echo "$stem 15" >> "$focus"
 echo "msk144-sim-grid: $(grep -c . "$manifest") files in $out, $(grep -c . "$focus") more in MANIFEST.focus" >&2
