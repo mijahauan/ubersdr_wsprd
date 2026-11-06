@@ -31,6 +31,17 @@
 
 namespace msk144 {
 
+// MSK144 decoding is NOT thread-safe, and not re-entrant. jt9 runs one file at a time, so it never
+// matters there; it would if a program ever ran MSK144 on several threads. Two things hold state that
+// no per-file reset reaches or that no caller owns:
+//   - analytic() (msk_frontend.cpp) keeps the Fortran's `save` variables (the filter h, the equalizer
+//     corr, nfft0, aclast, pclast) in function statics, shared by every caller;
+//   - decode_msk144() (msk144_decode.cpp) uses one global Packjt77 for the call hashes.
+// RtdState::reset() at the start of each file (msk144_jt9.cpp) restores what mskrtd saves, and the
+// MSK144 Packjt77 as well. It does not make the decoder stateless: analytic's statics cross files, and
+// stay right only because nothing can make them differ from a fresh process (mskrtd always calls it
+// with nfft 8192, and pc stays zero). Read "reset per file" with that in mind.
+
 // mskrtd's saved variables (its `save` and `data` statements), and the
 // arrays it keeps.
 struct RtdState {
@@ -39,7 +50,10 @@ struct RtdState {
     float tsec0 = 0.0f;
     int nutc00 = 0;
     float pnoise = -1.0f;
-    std::array<cfloat, NFFT1> cdat{};  // the analytic signal (saved by the Fortran, written whole each call)
+    // the analytic signal (saved by the Fortran, written whole each call). alignas(32): the FFT works on this
+    // buffer in place, and a misaligned one would make fft_c2c_inplace plan afresh on every call (and might
+    // pick other codelets than the reference's)
+    alignas(32) std::array<cfloat, NFFT1> cdat{};
     std::string msglast = std::string(37, ' ');
     std::string msglastswl = std::string(37, ' ');
     int nsnrlast = -99;

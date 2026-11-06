@@ -95,6 +95,20 @@ case $piece in
     msk40) sources="src/msk40.cpp src/msk144_sync.cpp src/msk144_decode.cpp src/msk144_ldpc.cpp src/ft8_ldpc.cpp src/wsprd_osd.cpp src/packjt77.cpp src/msk_frontend.cpp src/ft8_maths.cpp src/fft.cpp src/fft_wisdom.cpp" ;;
     *) sed -n '/^# Pieces:/p' "$0" | sed 's/^# //' >&2; exit 2 ;;
 esac
+# The least number of lines an oracle's output may have (the lines the two outputs are compared on). The
+# oracle decides its own case list, and the driver reads that list back out of the oracle's output, so a
+# shorter list in the oracle shortens both outputs and still matches: the END line's count is no guard
+# either. A floor does guard it. Each is today's line count, 4679, 72978, 230961, 79767 and 54759,
+# rounded down to two significant figures, i.e. about 1 to 2 % below: an edit that drops a case group
+# (the smallest is some 3 % of its piece) fails, and an added case never does. Raise the floor with the
+# count when a piece gains cases.
+case $piece in
+    ldpc) min_lines=4600 ;;
+    frontend) min_lines=72000 ;;
+    sync) min_lines=228000 ;;
+    frame) min_lines=79000 ;;
+    msk40) min_lines=54000 ;;
+esac
 oracle_src=$repo/scripts/msk144-$piece-oracle.f90
 driver_src=$repo/scripts/msk144-$piece-check.cpp
 [[ $piece == msk40 ]] && { oracle_src=$repo/scripts/msk40-oracle.f90; driver_src=$repo/scripts/msk40-check.cpp; }
@@ -182,6 +196,8 @@ run_oracle() {  # BINARY OUTFILE [env args...]
     fi
     grep -Eq "^END $piece [0-9]+\$" <(tail -n 1 "$out") ||
         { echo "msk144-piece-check: $piece: the oracle's output ($out) does not end with 'END $piece N': truncated" >&2; exit 1; }
+    (( $(wc -l < "$out") >= min_lines )) ||
+        { echo "msk144-piece-check: $piece: the oracle's output ($out) has $(wc -l < "$out") lines, under the floor of $min_lines: cases are missing" >&2; exit 1; }
 }
 
 if [[ $piece == frame ]]; then
