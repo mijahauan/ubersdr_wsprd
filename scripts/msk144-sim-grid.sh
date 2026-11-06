@@ -130,8 +130,8 @@ fi
 #   swl-state-a, swl-state-b (Task 7): a ping of "N0ABC W1AW EN34" at +10 dB, and three
 #       pings of the MSK40 frame "<N0ABC W1AW> RRR" at +8 dB (jt9's calls are K1ABC
 #       and W9XYZ, so the hash is none the decoder is asked for). Run with
-#       --msk-swl, file a then file b: the pair's hash is in the SWL table only
-#       if the table survives from the first file to the second
+#       --msk-swl, files b, a, b: the pair's hash is in the SWL table when the
+#       second b runs only if the table survives from a to the b after it
 #   swl-pair: the two samples added, as hash-ab is: the standard message at 5 s
 #       gives the decoder both calls, and the MSK40 pings at 7 s and 11 s are then
 #       "<N0ABC W1AW> RRR" by the pair's hash (the ping at 2 s came first: "<hhhh>")

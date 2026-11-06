@@ -603,7 +603,7 @@ void msk40spd(Msk40State& ms, const Packjt77& pk, const cfloat* cbig, int n, int
     cfloat cdat[3 * NSPM];
     cfloat c[NSPM];
     cfloat ct[NSPM];
-    cfloat ctmp[NFFT];
+    alignas(32) cfloat ctmp[NFFT];
     int indices[MAXSTEPS];
     int npkloc[10] = {0};
     int navmask[3];

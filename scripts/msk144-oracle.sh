@@ -63,16 +63,17 @@ quadmath=; [[ $(gcc -print-file-name=libquadmath.so) == /* ]] && quadmath=-lquad
 # fcompile SRC.f90 OUT: a Fortran main against the release build's library,
 # with the flags CMake gives msk144sim, as WSJT-X links its own simulators.
 fcompile() {
-    local f=$1 out=$2 variant=${3:-} o
+    local f=$1 out=$2 variant=${3:-} o mismatch=()
     local lib=libwsjt_fort.a mods=fortran_modules omp=()
     # variant omp: against the OpenMP variant of the library, as the release jt9 links it
     if [[ $variant == omp ]]; then lib=libwsjt_fort_omp.a mods=fortran_modules_omp omp=(-fopenmp); fi
     o=$(mktemp -d "$work/fc.XXXXXX")
     read -r -a fflags <<< "$(sed -n 's/^Fortran_FLAGS = //p' "$b/CMakeFiles/msk144sim.dir/flags.make")"
-    # -fallow-argument-mismatch: lib/msk40spd.f90 leaves nhasharray undeclared (a scalar by implicit typing) and
-    # passes the array mskrtd gave it on to msk40decodeframe, which declares it 10 by 10: the reference's files
+    # -fallow-argument-mismatch for the msk40 oracle only (the others compile strictly): lib/msk40spd.f90
+    # leaves nhasharray undeclared (a scalar by implicit typing) and passes the array mskrtd gave it on to msk40decodeframe, which declares it 10 by 10: the reference's files
     # are separate and compile; an oracle that holds copies of both in one file is told of the mismatch
-    (cd "$b" && gfortran "${fflags[@]}" "${omp[@]}" -fallow-argument-mismatch -Wno-intrinsic-shadow -I $mods -I "$src/lib" -J "$o" \
+    [[ $(basename "$f") == msk40-* ]] && mismatch=(-fallow-argument-mismatch)
+    (cd "$b" && gfortran "${fflags[@]}" "${omp[@]}" "${mismatch[@]}" -Wno-intrinsic-shadow -I $mods -I "$src/lib" -J "$o" \
             -c "$f" -o "$o/main.o" &&
         c++ -fopenmp -pthread "$o/main.o" -o "$out" $lib libwsjt_cxx.a -lm \
             /usr/lib/$(gcc -dumpmachine)/libboost_{log_setup,log,chrono,filesystem,regex,thread,atomic}.so.1.83.0 \

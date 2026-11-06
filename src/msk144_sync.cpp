@@ -350,7 +350,7 @@ void msk144spd(const cfloat* cbig, int n, int ntol, int& nsuccess, char* msgrece
 
     cfloat cdat[3 * NSPM];
     cfloat c[NSPM];
-    cfloat ctmp[NFFT];
+    alignas(32) cfloat ctmp[NFFT];
     int indices[MAXSTEPS];
     int npkloc[10] = {0};
     int navmask[3];
