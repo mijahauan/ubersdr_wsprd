@@ -439,6 +439,9 @@ add "ft2-cli/t-missing|same-bare|-|--ft2 -d 2 -t nodir $P2"
 for a in $(find "$repo/tests/data/msk144/cases" -path '*/jt9-*' -name args.txt 2> /dev/null | sort); do
     d=$(dirname "$a"); v=$(basename "$d"); v=${v#jt9-}; c=$(basename "$(dirname "$d")")
     kind=same-bare; [[ $v == shmsg || $v == swl ]] && kind=stored-bare
+    # several files in a command line, and --feed: the reference's outputs stored, made one process a file
+    # (its decoder.f90 sets omp_set_dynamic(.true.) after the first file, so a multi-file run answers by load)
+    [[ -f $d/stdin.txt || $(grep -o '\.wav' "$a" | wc -l) -gt 1 ]] && kind=stored-bare
     add "msk144-$c/$v|$kind|-|$(cut -d' ' -f2- "$a")"
 done
 
@@ -474,7 +477,13 @@ run_one() {  # side spec
         esac
     done
     if [[ $side == new ]]; then
-        (cd "$dir/cwd" && "$new" "${argv[@]}" > ../stdout 2> ../stderr < /dev/null)
+        # --feed's stdin: the case's stdin.txt, its paths from the repository's root
+        local in=/dev/null cdir
+        if [[ $name == msk144-* ]]; then
+            cdir=$repo/tests/data/msk144/cases/${name#msk144-}; cdir=${cdir%/*}/jt9-${cdir##*/}
+            [[ -f $cdir/stdin.txt ]] && { sed "s|^|$repo/|" "$cdir/stdin.txt" > "$dir/stdin"; in=$dir/stdin; }
+        fi
+        (cd "$dir/cwd" && "$new" "${argv[@]}" > ../stdout 2> ../stderr < "$in")
     elif [[ -n $image ]]; then
         "$docker" "${ctr_pre[@]}" run --rm --network none "${ctr_run[@]}" -u "$(id -u):$(id -g)" -v "$repo:$repo:ro" -v "$work:$work" \
             -v "$(dirname "$stock"):$(dirname "$stock"):ro" -w "$dir/cwd" "$image" \
@@ -619,7 +628,7 @@ if (( new_spread )); then
     for spec in "${cases[@]}"; do
         [[ ${spec%%|*} == msk144-* && ( -z $only || ${spec%%|*} =~ $only ) ]] && want=$((want + 1))
     done
-    floor=338; [[ -n $only ]] && floor=0
+    floor=355; [[ -n $only ]] && floor=0
     echo "jt9-compare: MSK144: $nmsk of $want cases ran (at least $floor expected)" >&2
     if (( nmsk < want || nmsk < floor )); then
         echo "jt9-compare: FAIL: MSK144 cases did not all run" >&2; fails=1

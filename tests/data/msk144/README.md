@@ -65,6 +65,28 @@ noise and the clipped file. Our jt9 does not take `--msk-shmsg` and
 variants until its usage lists them, then check them against the stored
 outputs (the reference has no such option to run beside).
 
+## Task 6's cases (`scripts/msk144-oracle.sh focus`)
+
+Behaviours that each look wrong and must stay as the reference has them. Made
+one reference process per file with `OMP_DYNAMIC` and `OMP_THREAD_LIMIT` unset:
+after its first file the reference's `decoder.f90` calls `omp_set_dynamic(.true.)`,
+so a second file's answer in the same process depends on the load. A
+multi-file case's stored output is the single-file runs end to end, never a
+multi-file reference run. `jt9-compare.sh` checks those cases (more than one
+`.wav` in `args.txt`, or a `stdin.txt`) against the stored files alone, and
+runs `--feed` with `stdin.txt` (paths from the repository's root) as stdin.
+
+| case                  | variants and what they show                                                                 |
+|-----------------------|---------------------------------------------------------------------------------------------|
+| `repeat-across-files` | `files`: one command line, `feed`: `--feed`. Six files: a decode in the first block twice (its SNR carries any state from the file before), the 181211_120500 sample twice, a file with a hashed call that the earlier message resolves (`<W9XYZ> PJ4/K1ABC RRR`), a file with the hashed message alone (`<...>`), both again. `feed` prints `<FileDone> PATH N` after each file, N its decode lines |
+| `lastmode-Y`          | `Ymsk144` (`-Y --msk144`: MSK144), `msk144Y` (`--msk144 -Y`: FST4W)                        |
+| `lastmode-8`          | `8msk144` (MSK144), `msk1448` (`--msk144 -8`: FT8)                                         |
+| `ntol-wide`           | `-F 300`, `1000`, `1001`, `5000` on a -200 Hz offset (jt9.f90 limits `-F` to 1000)        |
+| `freq-edge`           | `-f 0`, `200`, `800`, `6000`, `9000` with `-F` 200 to 5000, on an 800 Hz carrier           |
+
+Their inputs are listed in `recordings/msk144-sim/MANIFEST.focus` (made by
+`scripts/msk144-sim-grid.sh`, which gives `corpus` no variants on them).
+
 ## Inputs
 
 **WSJT-X's samples.** `181211_120500.wav` and `181211_120800.wav` come from

@@ -3,7 +3,7 @@
 // 567ad29ce), its command line, files and output the same, so it can stand
 // in for WSJT-X's jt9 file for file. So far FST4W (--fst4w, -W, or -Y:
 // fst4w_jt9.h, fst4w.h), FT8 (-8 or --ft8: ft8_jt9.h, ft8.h), FT4 (-5 or
-// --ft4: ft4_jt9.h, ft4.h) and FT2 (--ft2 alone, as WSJT-X improved 3.2.0's
+// --ft4: ft4_jt9.h, ft4.h), MSK144 (-k or --msk144: msk144_jt9.h, msk144.h) and FT2 (--ft2 alone, as WSJT-X improved 3.2.0's
 // jt9 takes it: ft2_jt9.h, ft2.h), with the options those modes read; other
 // modes and their options are not taken yet (unknown to it, as WSJT-X's jt9
 // treats an option it does not know).
@@ -28,7 +28,7 @@
 // 300, 900 or 1800 s) ends as WSJT-X's does: of SIGFPE on x86-64 (status
 // 136), of SIGSEGV on arm64 (139); gfortran's line on stderr, no backtrace.
 //
-// Ours alone: --feed (FT8, FT4, FT2: the files' names read from stdin, each
+// Ours alone: --feed (FT8, FT4, FT2, MSK144: the files' names read from stdin, each
 // decoded as it arrives by one decoder, then "<FileDone> PATH N": ft8_jt9.h's
 // run_feed); FT8's, FT4's and FT2's file modes take 32-bit float .wav files too;
 // --fast-subtract (FT8, FT4, FT2: ft_fast_subtract.h, not WSJT-X's to the

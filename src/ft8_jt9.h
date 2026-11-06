@@ -30,6 +30,7 @@ struct FileMode {
     double trperiod = 60.0;                       // -p
     int ndepth = 1;                               // -d
     int nrxfreq = 1500;                           // -f (nfqso)
+    int ntol = 20;                                // -F (MSK144's: limited to 1000, as jt9.f90 does)
     int flow = 200, fhigh = 4000;                 // -L, -H (nfa, nfb)
     int nqso_progress = 0;                        // -Q (0-5)
     int nexp_decode = 0;                          // -X (ncontest = its low 3 bits)

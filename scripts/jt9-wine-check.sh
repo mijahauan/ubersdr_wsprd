@@ -115,12 +115,13 @@ done < <(find "$repo/tests/data/fst4w/cases" -name args.txt | sort)
 ft8=() nft4=0 nft2=0 nmsk=0
 usage_text=$(jt9 -h 2> /dev/null | tr -d '\r' || true)
 # Our port lists --spread (the WSJT-X reference does not). With it, every MSK144
-# case runs, and fails when the option is missing. Only JT9_WINE_MSK144=pending
-# (build.sh --check, until the port has MSK144) leaves them out, loudly.
+# case runs, and fails when --msk144 is missing. The shmsg and swl variants
+# (--msk-shmsg, --msk-swl, Task 7's) run once the usage lists both, and are
+# left out, loudly, until then.
 msk_ok=false msk_flags=false msk_left=0
 [[ $usage_text == *--msk144* ]] && msk_ok=true
 [[ $usage_text == *--msk-shmsg* && $usage_text == *--msk-swl* ]] && msk_flags=true
-if [[ $usage_text == *--spread* && ${JT9_WINE_MSK144:-} != pending ]]; then msk_ok=true msk_flags=true; fi
+if [[ $usage_text == *--spread* ]]; then msk_ok=true; fi
 while IFS= read -r a; do
     missing=
     d=$(dirname "$a")
@@ -156,7 +157,10 @@ run_ft8() {  # case dir
     for t in $(cut -d' ' -f2- "$d/args.txt"); do
         case $t in recordings/*|tests/*) argv+=("$repo/$t") ;; *) argv+=("$t") ;; esac
     done
-    (cd "$run/cwd" && jt9 "${argv[@]}" > ../stdout 2> ../stderr < /dev/null; echo $? > ../status)
+    # --feed's stdin (MSK144's cases): stdin.txt, its paths from the repository's root
+    local in=/dev/null
+    if [[ -f $d/stdin.txt ]]; then sed "s|^|$repo/|" "$d/stdin.txt" > "$run/stdin"; in=$run/stdin; fi
+    (cd "$run/cwd" && jt9 "${argv[@]}" > ../stdout 2> ../stderr < "$in"; echo $? > ../status)
     find "$run/cwd" \( -name timer.out -o -name jt9_wisdom.dat \) -delete
 }
 jobs_max=${JT9_WINE_JOBS:-$(nproc)} running=0
@@ -182,7 +186,7 @@ for d in "${ft8[@]}"; do
             cmp -s <(nocr "$run/cwd/$f") "$d/files/$f" 2> /dev/null || differs "${f#./}" "$run/cwd/$f"
         done
     elif [[ $d == */msk144/* ]]; then  # nothing is written but what is stored (usually nothing)
-        for f in $( (cd "$d" && ls | grep -v -x -e args.txt -e stdout.txt -e status.txt -e stderr.txt; cd "$run/cwd" && find . -type f | sed 's|^\./||') | sort -u); do
+        for f in $( (cd "$d" && ls | grep -v -x -e args.txt -e stdout.txt -e status.txt -e stderr.txt -e stdin.txt; cd "$run/cwd" && find . -type f | sed 's|^\./||') | sort -u); do
             cmp -s <(nocr "$run/cwd/$f") "$d/$f" 2> /dev/null || differs "$f" "$run/cwd/$f"
         done
     else
@@ -193,9 +197,9 @@ for d in "${ft8[@]}"; do
     else pass=$((pass + 1)); fi
 done
 
-echo "jt9-wine-check: MSK144: $nmsk cases ran, $msk_left left out (--msk144 in the usage: $msk_ok, the flags: $msk_flags${JT9_WINE_MSK144:+, JT9_WINE_MSK144=$JT9_WINE_MSK144})" >&2
-if [[ $usage_text == *--spread* && ${JT9_WINE_MSK144:-} != pending ]] && [[ -z ${JT9_WINE_ONLY:-} ]] && (( nmsk < 318 )); then
-    echo "jt9-wine-check: FAIL: only $nmsk of the 318 MSK144 cases ran" >&2; fail=$((fail + 1))
+echo "jt9-wine-check: MSK144: $nmsk cases ran, $msk_left left out (--msk144 in the usage: $msk_ok, the flags: $msk_flags)" >&2
+if [[ $usage_text == *--spread* ]] && [[ -z ${JT9_WINE_ONLY:-} ]] && (( nmsk + msk_left < 335 )); then
+    echo "jt9-wine-check: FAIL: only $((nmsk + msk_left)) of the 335 MSK144 cases are here" >&2; fail=$((fail + 1))
 fi
 label="jt9.exe under wine"; $native && label="$(basename "$exe")"
 acc_note=; (( accept )) && acc_note=", $accept as accepted for arm64 (tests/data/jt9-arm64-accepted.txt)"

@@ -111,4 +111,38 @@ open(sys.argv[2], "wb").write(b[:i + 8] + struct.pack(f"<{n}h", *c))
 EOF
     echo "$stem 15" >> "$manifest"
 fi
-echo "msk144-sim-grid: $(grep -c . "$manifest") files in $out" >&2
+
+# Task 6's inputs (the Review Focus cases of scripts/msk144-oracle.sh focus),
+# listed in MANIFEST.focus, not MANIFEST: the corpus runs no variants on them.
+#   hash-a, hash-b, hash-ab: a ping of "K1ABC W9XYZ EN37" at 3 s; a ping of
+#       "<W9XYZ> PJ4/K1ABC RRR" at 9 s (a hashed call: it prints <...> unless the
+#       decoder has seen W9XYZ in full); and the two files' samples added (the
+#       hash resolves in the second ping)
+#   early-ping: a ping at 0.15 s, +10 dB: decoded in the first block, where mskrtd
+#       has no noise level yet (SNR 0), so a state carried over from a file
+#       before it would show in the SNR
+#   freq-edge-f0800: the carrier at 800 Hz, +8 dB: -f and -F reach it from
+#       the band's lower edge (-f 200 -F 700, -f 0, a window cut at 0 Hz)
+focus=$out/MANIFEST.focus; : > "$focus"
+genf() { gen "$@"; tail -n 1 "$manifest" >> "$focus"; sed -i '$d' "$manifest"; }
+genf "hash-a" 15 10 0.2 3 1500 "K1ABC W9XYZ EN37"
+genf "hash-b" 15 10 0.2 9 1500 "<W9XYZ> PJ4/K1ABC RRR"
+n=$((n + 1))
+stem=$(printf 'hash-ab-261106_12%02d%02d' $((n / 60)) $((n % 60)))
+python3 -I - "$out" "$(tail -n 2 "$focus" | head -n 1 | cut -d' ' -f1)" "$(tail -n 1 "$focus" | cut -d' ' -f1)" "$stem" <<'PYEOF'
+import struct, sys
+out, a, b, stem = sys.argv[1:5]
+def rd(name):
+    d = open(f"{out}/{name}.wav", "rb").read()
+    i = d.index(b"data")
+    n = struct.unpack("<I", d[i + 4:i + 8])[0] // 2
+    return d[:i + 8], struct.unpack(f"<{n}h", d[i + 8:i + 8 + 2 * n])
+h, x = rd(a)
+_, y = rd(b)
+z = [max(-32768, min(32767, p + q)) for p, q in zip(x, y)]
+open(f"{out}/{stem}.wav", "wb").write(h + struct.pack(f"<{len(z)}h", *z))
+PYEOF
+echo "$stem 15" >> "$focus"
+genf "freq-edge-f0800" 15 8 0.2 5 800 "$M"
+genf "early-ping" 15 10 0.2 0.15 1500 "$M"
+echo "msk144-sim-grid: $(grep -c . "$manifest") files in $out, $(grep -c . "$focus") more in MANIFEST.focus" >&2

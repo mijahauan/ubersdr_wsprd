@@ -7,7 +7,9 @@
 #
 #   scripts/msk144-oracle.sh build         the three builds, the two-build check
 #   scripts/msk144-oracle.sh corpus        inputs, the cases run, fixtures stored
-#   scripts/msk144-oracle.sh all           both
+#   scripts/msk144-oracle.sh focus         Task 6's cases (repeat-across-files, lastmode-*,
+#                                          ntol-wide, freq-edge), one reference process a file
+#   scripts/msk144-oracle.sh all           build, corpus and focus
 #   scripts/msk144-oracle.sh --print-env   the paths a later step sources
 #   scripts/msk144-oracle.sh fortran FILE.f90 [NAME [omp]]
 #                                          compile a Fortran oracle against the
@@ -282,6 +284,110 @@ corpus)
             "$(ls -d "$data"/cases/*/jt9-$v 2>/dev/null | wc -l)" \
             "$(grep -l '^[0-9]' "$data"/cases/*/jt9-$v/stdout.txt 2>/dev/null | wc -l)" >&2
     done
+       [[ $cmd == all ]] || exit 0
+    ;&
+
+
+# ---------------------------------------------------------------- focus
+# Task 6's cases, stored in the corpus's layout beside the others (the corpus
+# step is not run again): the command line's behaviours that each look wrong
+# and must stay as they stand. One reference process a file, with OMP_DYNAMIC
+# and OMP_THREAD_LIMIT unset: after its first file the reference's decoder.f90
+# calls omp_set_dynamic(.true.), which makes msk144sync's team (and so a
+# second file's result) depend on the load. A multi-file case's outputs are the
+# single-file runs' put end to end: the files' stdout in turn; for --feed, with
+# "<FileDone> PATH N" after each (N the decode lines of that file).
+focus)
+    data=$repo/tests/data/msk144
+    unset OMP_DYNAMIC OMP_THREAD_LIMIT
+    sim=recordings/msk144-sim
+    sample=recordings/msk144-samples/181211_120500.wav
+    hashab=$(ls "$repo/$sim"/hash-ab-*.wav | sed "s|^$repo/||")
+    hashb=$(ls "$repo/$sim"/hash-b-*.wav | sed "s|^$repo/||")
+    m200=$(ls "$repo/$sim"/freq-m200-sm02-*.wav | sed "s|^$repo/||")
+    edge=$(ls "$repo/$sim"/freq-edge-f0800-*.wav | sed "s|^$repo/||")
+    early=$(ls "$repo/$sim"/early-ping-*.wav | sed "s|^$repo/||")
+    B="-a . -k -p 15 -f 1500 -F 200 -d 3"
+
+    # one_run DIR ARGS...: the reference, once, in DIR; its stdout with the
+    # repository's directory taken out of the paths
+    one_run() {
+        local dir=$1; shift
+        rm -rf "$dir"; mkdir -p "$dir"
+        local argv=() tok
+        for tok in "$@"; do case $tok in recordings/*) argv+=("$repo/$tok") ;; *) argv+=("$tok") ;; esac; done
+        set +e
+        (cd "$dir" && "$work/release/jt9" "${argv[@]}" > stdout.txt 2> stderr.txt < /dev/null)
+        echo $? > "$dir/status.txt"
+        set -e
+        sed -i "s|$repo/||g" "$dir/stdout.txt" "$dir/stderr.txt"
+        rm -f "$dir/timer.out" "$dir/jt9_wisdom.dat" "$dir/plotspec" "$dir/decdata"
+    }
+    # store DIR ARGS-LINE [STDIN-FILE]: the case directory from the run just made in $dir
+    store() {
+        local out=$1 run=$2 args=$3
+        rm -rf "$out"; mkdir -p "$out"
+        echo "jt9 $args" > "$out/args.txt"
+        cp "$run/stdout.txt" "$run/status.txt" "$out/"
+        [[ -s $run/stderr.txt ]] && cp "$run/stderr.txt" "$out/"
+        [[ -f $run/decoded.txt ]] && cp "$run/decoded.txt" "$out/"
+        return 0
+    }
+    # single CASE VARIANT FILE ARGS...: one file, one process
+    single() {
+        local case=$1 v=$2 file=$3; shift 3
+        one_run "$work/focus-run/$case-$v" "$@" "$file"
+        store "$data/cases/$case/jt9-$v" "$work/focus-run/$case-$v" "$* $file"
+    }
+    # multi CASE VARIANT FILES...: one process a file, the outputs put end to end, as `jt9 B FILES` and
+    # as `jt9 --feed B` print them
+    multi() {
+        local case=$1 v=$2; shift 2
+        local files=("$@") i=0 f d n
+        local cat=$work/focus-run/$case-$v.files cfeed=$work/focus-run/$case-$v.feed
+        rm -rf "$work/focus-run/$case-$v" "$cat" "$cfeed"; mkdir -p "$work/focus-run/$case-$v"
+        : > "$work/focus-run/$case-$v/stdout.txt"; : > "$cfeed.stdout"
+        : > "$work/focus-run/$case-$v/stdin.txt"
+        for f in "${files[@]}"; do
+            i=$((i + 1)); d=$work/focus-run/$case-$v/one$i
+            one_run "$d" $B "$f"
+            [[ $(cat "$d/status.txt") == 0 && ! -s $d/stderr.txt ]] || { echo "msk144-oracle: focus: $f: status/stderr" >&2; exit 1; }
+            cat "$d/stdout.txt" >> "$work/focus-run/$case-$v/stdout.txt"
+            cat "$d/stdout.txt" >> "$cfeed.stdout"
+            n=$(grep -c -v -e '^ EOF' -e '^<DecodeFinished>' "$d/stdout.txt" || true)
+            echo "<FileDone> $f $n" >> "$cfeed.stdout"
+            echo "$f" >> "$work/focus-run/$case-$v/stdin.txt"
+            [[ -f $d/decoded.txt ]] && : > "$work/focus-run/$case-$v/decoded.txt"
+        done
+        echo 0 > "$work/focus-run/$case-$v/status.txt"
+        # the file list on the command line, and --feed's
+        store "$data/cases/$case/jt9-files" "$work/focus-run/$case-$v" "$B ${files[*]}"
+        mkdir -p "$data/cases/$case/jt9-feed"
+        echo "jt9 --feed $B" > "$data/cases/$case/jt9-feed/args.txt"
+        cp "$cfeed.stdout" "$data/cases/$case/jt9-feed/stdout.txt"
+        cp "$work/focus-run/$case-$v/status.txt" "$work/focus-run/$case-$v/stdin.txt" "$data/cases/$case/jt9-feed/"
+        [[ -f $work/focus-run/$case-$v/decoded.txt ]] && cp "$work/focus-run/$case-$v/decoded.txt" "$data/cases/$case/jt9-feed/"
+        return 0
+    }
+    rm -rf "$work/focus-run"; mkdir -p "$work/focus-run"
+    rm -rf "$data"/cases/{repeat-across-files,lastmode-Y,lastmode-8,ntol-wide,freq-edge}
+
+    # a decode in the first block twice (its SNR, with no noise level yet, shows state kept from the file before),
+    # the same decode further in twice, then a hashed call that the first file's earlier message resolves and a
+    # file that holds only the hashed message (<...> there), twice over
+    multi repeat-across-files all "$early" "$early" "$sample" "$sample" "$hashab" "$hashb" "$hashab" "$hashb"
+    # the last mode wins, in both orders
+    single lastmode-Y Ymsk144 "$sample" -Y --msk144 -p 15 -f 1500 -F 200 -d 3 -a .
+    single lastmode-Y msk144Y "$sample" --msk144 -Y -p 15 -f 1500 -F 200 -d 3 -a .
+    single lastmode-8 msk1448 "$sample" --msk144 -8 -p 15 -f 1500 -F 200 -d 3 -a .
+    single lastmode-8 8msk144 "$sample" -8 --msk144 -p 15 -f 1500 -F 200 -d 3 -a .
+    # -F beyond what jt9.f90 allows (min(ntol, 1000))
+    for F in 300 1000 1001 5000; do single ntol-wide "F$F" "$m200" -a . -k -p 15 -f 1500 -F $F -d 3; done
+    # -f at the band's edges
+    for a in "200 1000" "200 700" "200 200" "0 1000" "800 1000" "6000 5000" "9000 1000"; do
+        set -- $a; single freq-edge "f$1-F$2" "$edge" -a . -k -p 15 -f $1 -F $2 -d 3
+    done
+    echo "msk144-oracle: focus: $(ls -d "$data"/cases/{repeat-across-files,lastmode-Y,lastmode-8,ntol-wide,freq-edge}/jt9-* | wc -l) runs stored" >&2
     ;;
 
 # ---------------------------------------------------------------- fortran
@@ -321,8 +427,8 @@ EOF
 }
 if [[ ${1:-} == --print-env ]]; then print_env; exit 0; fi
 step=${1:-}
-case $step in build|corpus|all|fortran|exec) shift ;;
-    *) sed -n '2,19p' "$0" | sed 's/^# \?//' >&2; exit 2 ;;
+case $step in build|corpus|focus|all|fortran|exec) shift ;;
+    *) sed -n '2,21p' "$0" | sed 's/^# \?//' >&2; exit 2 ;;
 esac
 
 # the container runner: docker if there is one, else podman
