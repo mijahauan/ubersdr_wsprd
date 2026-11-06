@@ -15,26 +15,13 @@
 
 namespace msk144 {
 
+Bpdecode128_90Trace bpdecode128_90_trace = nullptr;
+
 namespace {
 
 #include "msk144_ldpc_tables.inc"
 
 constexpr int N = 128, K = 90, M = N - K;
-
-// platanh(x, y) (lib/platanh.f90): a piecewise-linear atanh.
-float platanh(float x) {
-    int isign = +1;
-    float z = x;
-    if (x < 0) {
-        isign = -1;
-        z = std::fabs(x);
-    }
-    if (z <= 0.664f) return x / 0.83f;
-    if (z <= 0.9217f) return static_cast<float>(isign) * (z - 0.4064f) / 0.322f;
-    if (z <= 0.9951f) return static_cast<float>(isign) * (z - 0.8378f) / 0.0524f;
-    if (z <= 0.9998f) return static_cast<float>(isign) * (z - 0.9914f) / 0.0012f;
-    return static_cast<float>(isign) * 7.0f;
-}
 
 // crc13(data, length) (lib/crc13.cpp): boost::augmented_crc<13, 0x15D7>,
 // initial remainder 0, bytes most significant bit first.
@@ -50,6 +37,21 @@ int crc13(const unsigned char* data, int length) {
 }
 
 }  // namespace
+
+// platanh(x, y) (lib/platanh.f90): a piecewise-linear atanh.
+float platanh(float x) {
+    int isign = +1;
+    float z = x;
+    if (x < 0) {
+        isign = -1;
+        z = std::fabs(x);
+    }
+    if (z <= 0.664f) return x / 0.83f;
+    if (z <= 0.9217f) return static_cast<float>(isign) * (z - 0.4064f) / 0.322f;
+    if (z <= 0.9951f) return static_cast<float>(isign) * (z - 0.8378f) / 0.0524f;
+    if (z <= 0.9998f) return static_cast<float>(isign) * (z - 0.9914f) / 0.0012f;
+    return static_cast<float>(isign) * 7.0f;
+}
 
 // chkcrc13a (lib/ft8/chkcrc13a.f90): true when nbadcrc comes out 0.
 bool chkcrc13a(const signed char decoded[90]) {
@@ -115,6 +117,8 @@ int bpdecode128_90(const float llr_in[128], int maxiterations, signed char messa
             for (int kk = 2; kk <= ncw; ++kk) s += tov[kk][i];
             zn[i] = llr[i] + s;
         }
+
+        if (bpdecode128_90_trace) bpdecode128_90_trace(iter, zn, tov);  // the piece check's hook, not in the Fortran
 
         // Check to see if we have a codeword (check before we do any iteration).
         for (int i = 1; i <= N; ++i) cw[i] = zn[i] > 0.f ? 1 : 0;

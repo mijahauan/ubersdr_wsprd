@@ -15,6 +15,20 @@
 # A later piece adds its oracle, its driver, and one line to the table below
 # (the port's sources that driver links).
 #
+# ldpc also checks intermediate values: the oracle gets, appended, a copy of
+# the reference's lib/bpdecode128_90.f90 (sed: renamed bpdecode128_90_trace,
+# plus a declaration and one call, at the top of each iteration, of
+# msk144_trace_print, which prints checksums of zn and tov), and the port's
+# optional hook (bpdecode128_90_trace in src/msk144_ldpc.h) prints the same.
+# The sed anchors are checked: the script stops if the reference moved.
+#
+# Flags: the driver is built with what CMakeLists.txt gives jt9's MSK144
+# files: FT8_FP_OPTIONS (-ffp-contract=off, plus -mno-fma on GCC before 13
+# for x86-64), on top of CMake's Release -O3 and the -march=x86-64-v3
+# default. To verify they still match: run
+#   cmake --build build -t jt9 -- VERBOSE=1 (after touching src/msk144_ldpc.cpp)
+# and compare the compile line of msk144_ldpc.cpp with `flags` below.
+#
 #   MSK144_ORACLE_WORK=DIR   as scripts/msk144-oracle.sh (default
 #                            ~/.cache/msk144-oracle); needs its `build`
 #
@@ -46,8 +60,23 @@ if [[ $(uname -m) == x86_64 ]]; then
 fi
 srcs=(); for s in $sources; do srcs+=("$repo/$s"); done
 
+# the oracle's source: for ldpc, with the instrumented copy of the reference's routine appended
+oracle_full=$oracle_src
+if [[ $piece == ldpc ]]; then
+    ref=${WSJTX:-$HOME/repos/wsjtx}/lib/bpdecode128_90.f90
+    oracle_full=$work/msk144-ldpc-oracle-traced.f90
+    sed -e 's/^subroutine bpdecode128_90(/subroutine bpdecode128_90_trace(/' \
+        -e 's/^end subroutine bpdecode128_90$/end subroutine bpdecode128_90_trace/' \
+        -e 's/^  real Tmn$/&\n  logical ltrace\n  common \/msktrace\/ ltrace/' \
+        -e 's/^! Check to see if we have a codeword (check before we do any iteration)\.$/    if( ltrace ) call msk144_trace_print(iter,zn,tov)\n&/' \
+        "$ref" > "$work/trace-routine.f90"
+    [[ $(diff "$ref" "$work/trace-routine.f90" | grep -c '^>') == 5 ]] ||
+        { echo "msk144-piece-check: the sed instrumentation did not apply to $ref" >&2; exit 1; }
+    cat "$oracle_src" "$work/trace-routine.f90" > "$oracle_full"
+fi
+
 # the oracle
-oracle=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_src" "msk144-$piece-oracle")
+oracle=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_full" "msk144-$piece-oracle")
 "$repo/scripts/msk144-oracle.sh" exec "$oracle" > "$work/oracle.out"
 
 # the driver (no output file if the port is missing: the link fails)
@@ -56,7 +85,7 @@ rm -f "$work/driver"
 "$work/driver" < "$work/oracle.out" > "$work/driver.out"
 
 if cmp -s "$work/oracle.out" "$work/driver.out"; then
-    echo "msk144-piece-check: $piece: identical ($(wc -l < "$work/oracle.out") lines, $(grep -c '^R' "$work/oracle.out") decodes run, $(awk '$1 == "R" && $4 >= 0' "$work/oracle.out" | wc -l) decoded, $(grep -c '^C' "$work/oracle.out") CRC checks)"
+    echo "msk144-piece-check: $piece: identical ($(wc -l < "$work/oracle.out") lines, $(grep -c '^R' "$work/oracle.out") decodes run, $(grep -c '^I' "$work/oracle.out") trace lines, $(grep -c '^P' "$work/oracle.out") platanh and $(grep -c '^T' "$work/oracle.out") tanh values, $(awk '$1 == "R" && $4 >= 0' "$work/oracle.out" | wc -l) decoded, $(grep -c '^C' "$work/oracle.out") CRC checks)"
 else
     echo "msk144-piece-check: $piece: DIFFERS: diff $work/oracle.out $work/driver.out" >&2
     diff "$work/oracle.out" "$work/driver.out" | head -10 >&2 || true

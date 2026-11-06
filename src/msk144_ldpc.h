@@ -15,12 +15,24 @@
 
 namespace msk144 {
 
+// platanh(x, y) (lib/platanh.f90): a piecewise-linear atanh, exported for
+// scripts/msk144-piece-check.sh's sweep against the Fortran's.
+float platanh(float x);
+
+// A debug-only trace of bpdecode128_90, for the piece check: null in
+// production (one untaken branch per iteration). When set, it is called at
+// the top of each iteration, once zn is updated, with iter, zn(1:128) and
+// tov(1:3,1:128), both 1-based in their last index (zn[0] and tov[*][0]
+// unused), as the Fortran's arrays are.
+using Bpdecode128_90Trace = void (*)(int iter, const float zn[129], const float tov[4][129]);
+extern Bpdecode128_90Trace bpdecode128_90_trace;
+
 // bpdecode128_90(llr, apmask, maxiterations, message77, cw, nharderror, iter),
 // with apmask all zero, as msk144decodeframe passes it. message77 is written
 // only on success (it keeps its value otherwise, as the Fortran's does); cw is
 // the last hard decision; nharderror is -1 on failure; niterations is `iter`
 // as the Fortran leaves it (maxiterations+1 when the loop runs out). Bits are
-// 0/1. Returns nharderror.
+// 0/1. The return value equals nharderror.
 int bpdecode128_90(const float llr[128], int maxiterations, signed char message77[77], signed char cw[128],
                    int& nharderror, int& niterations);
 
