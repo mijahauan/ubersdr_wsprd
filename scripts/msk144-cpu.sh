@@ -6,12 +6,13 @@
 #   scripts/msk144-cpu.sh JT9 [REPEATS]
 #
 # The runs timed: those without --msk-shmsg or --msk-swl (the only ones 3.0.2's
-# jt9 can be given), less the 19 runs on which 3.0.2's jt9 stops early or
-# differently (freq-edge: bounds-check abort; odd-bits8, odd-rate11025,
-# odd-stereo: it reads what 3.2.0-rc1 refuses). The same work for the port,
-# 3.2.0-rc1 and 3.0.2.
+# jt9 can be given), less the 24 runs on which 3.0.2's jt9 stops early or
+# differently (all of freq-edge, 7 of which differ: bounds-check abort;
+# odd-bits8, odd-rate11025, odd-stereo: it reads what 3.2.0-rc1 refuses), and
+# less the cases the final fix wave added (odd-trunc, odd-stream, real-uacnj-*):
+# the README's table is the corpus of 276 processes as it stood at Task 8. The
+# same work for the port, 3.2.0-rc1 and 3.0.2.
 #
-
 # Prints, per repeat, user, system and real seconds, and the load average before
 # and after. Set OMP_NUM_THREADS=1 for a single thread; MSK144_ODD is the odd
 # WAVs' directory (scripts/msk144-ab-302.sh). Run it where JT9 runs: for the
@@ -23,7 +24,7 @@ odd=${MSK144_ODD:-$HOME/.cache/msk144-oracle/inputs}
 unset OMP_DYNAMIC OMP_THREAD_LIMIT
 work=$(mktemp -d "${TMPDIR:-/tmp}/msk144-cpu.XXXXXX"); mkdir "$work/cwd"
 runs=$work/runs; : > "$runs"
-skip='^(freq-edge/|odd-bits8/|odd-rate11025/|odd-stereo/)'
+skip='^(freq-edge/|odd-bits8/|odd-rate11025/|odd-stereo/|odd-trunc/|odd-stream/|real-uacnj-)'
 for a in $(find "$repo/tests/data/msk144/cases" -path '*/jt9-*' -name args.txt | sort); do
     d=$(dirname "$a"); v=${d##*/jt9-}; c=$(basename "$(dirname "$d")")
     [[ $v == feed ]] && continue
