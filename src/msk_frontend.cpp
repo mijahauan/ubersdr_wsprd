@@ -16,6 +16,7 @@
 #include <mutex>
 #include <new>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -309,33 +310,45 @@ void msk144_freq_search(const cfloat* cdat, float fc, int if1, int if2, float de
         }
         for (v4f& x : clr) x = v4f{0.0f, 0.0f, 0.0f, 0.0f};
         for (v4f& x : cli) x = v4f{0.0f, 0.0f, 0.0f, 0.0f};
-        for (int fr = 0; fr < nframes; ++fr) {
-            const int ib = fr * NSPM;  // ib=(i-1)*NSPM+1, 0-based here
-            const bool avg = navmask[fr] == 1;
-            for (int j = 0; j < NSPM; ++j) {
-                const float ar = cdat[ib + j].real(), ai = cdat[ib + j].imag();
-                const v4f arv = {ar, ar, ar, ar}, aiv = {ai, ai, ai, ai};
-                v4f xr[NG], xi[NG];
-                for (int g = 0; g < NG; ++g) {
-                    const v4d nr = wr[g] * wsr[g] - wi[g] * wsi[g];
-                    const v4d ni = wr[g] * wsi[g] + wi[g] * wsr[g];
-                    wr[g] = nr;
-                    wi[g] = ni;
-                    const v4f w4r = __builtin_convertvector(nr, v4f), w4i = __builtin_convertvector(ni, v4f);
-                    xr[g] = w4r * arv - w4i * aiv;  // cmul(w4, cdat(i))
-                    xi[g] = w4r * aiv + w4i * arv;
-                }
-                if (avg) {
-                    v4f* const cr = &clr[static_cast<size_t>(j) * NG];
-                    v4f* const ci = &cli[static_cast<size_t>(j) * NG];
-                    for (int g = 0; g < NG; ++g) {
-                        cr[g] = cr[g] + xr[g];
-                        ci[g] = ci[g] + xi[g];
+        // The first ngu groups of four, all a group of nl trials uses: with four trials or
+        // fewer (a short last group, or a short call), group 1 holds only repeats of if2,
+        // whose sums nothing reads (the peak search reads l < nl, cdat2 comes from lane
+        // nl-1, both in group 0), so it is not run; its sums stay 0, unread.
+        auto frames = [&](auto ngu_c) {
+            constexpr int ngu = decltype(ngu_c)::value;
+            for (int fr = 0; fr < nframes; ++fr) {
+                const int ib = fr * NSPM;  // ib=(i-1)*NSPM+1, 0-based here
+                const bool avg = navmask[fr] == 1;
+                for (int j = 0; j < NSPM; ++j) {
+                    const float ar = cdat[ib + j].real(), ai = cdat[ib + j].imag();
+                    const v4f arv = {ar, ar, ar, ar}, aiv = {ai, ai, ai, ai};
+                    v4f xr[ngu], xi[ngu];
+                    for (int g = 0; g < ngu; ++g) {
+                        const v4d nr = wr[g] * wsr[g] - wi[g] * wsi[g];
+                        const v4d ni = wr[g] * wsi[g] + wi[g] * wsr[g];
+                        wr[g] = nr;
+                        wi[g] = ni;
+                        const v4f w4r = __builtin_convertvector(nr, v4f), w4i = __builtin_convertvector(ni, v4f);
+                        xr[g] = w4r * arv - w4i * aiv;  // cmul(w4, cdat(i))
+                        xi[g] = w4r * aiv + w4i * arv;
                     }
+                    if (avg) {
+                        v4f* const cr = &clr[static_cast<size_t>(j) * NG];
+                        v4f* const ci = &cli[static_cast<size_t>(j) * NG];
+                        for (int g = 0; g < ngu; ++g) {
+                            cr[g] = cr[g] + xr[g];
+                            ci[g] = ci[g] + xi[g];
+                        }
+                    }
+                    if (last) cdat2[ib + j] = cfloat(xr[(nl - 1) / 4][(nl - 1) % 4], xi[(nl - 1) / 4][(nl - 1) % 4]);
                 }
-                if (last) cdat2[ib + j] = cfloat(xr[(nl - 1) / 4][(nl - 1) % 4], xi[(nl - 1) / 4][(nl - 1) % 4]);
             }
-        }
+        };
+        static_assert(NG == 2, "frames() is run for one group or both");
+        if (nl > 4)
+            frames(std::integral_constant<int, 2>{});
+        else
+            frames(std::integral_constant<int, 1>{});
 
         for (int l = 0; l < nl; ++l) {
             const int ifr = ifr0 + l;

@@ -811,6 +811,10 @@ cmake --build build
 
 A 32-bit ARM system (`armv7l`) builds the plain code by itself.
 
+The compiler must be GCC 9 or later, or Clang: some decoder code uses
+their vector extensions (`__builtin_convertvector` among them). MSVC
+cannot build it; the Windows build uses mingw-w64's GCC.
+
 **Windows**, cross-compiled on Linux with Docker (mingw-w64, FFTW built in,
 so `wsprd.exe` and `jt9.exe` are one file each that need nothing beside them):
 
