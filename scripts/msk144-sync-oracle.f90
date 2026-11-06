@@ -175,6 +175,7 @@ program msk144_sync_oracle
       deallocate(wav)
    enddo
    call print_slice(99, cl, NLONG)
+   call check_synbits()
    ! ---- synthetic blocks: eight repeats of one frame at 1500 Hz, so that the real frame decoder meets frames
    ! it refuses. The 77 bits (scripts/msk144-frame-oracle.f90's MB lines 153 and 182): one that unpacks to
    ! 'CQ <...>' (refused, with that text left in msgreceived), one a message the decoder returns no success for
@@ -332,17 +333,13 @@ contains
       call analytic(dd, NZ, NF, c, pcc, bq)
    end subroutine block_analytic
 
-   ! a slice of 7168 points: the analytic signal of the MSK frame of these 77 bits repeated from point `start` on at
-   ! 1500 Hz (the frame's samples are the half-sine pulses of genmsk_128_90's xi and xq, c = xi + j xq, times
-   ! sqrt 2 for unit rms of the real signal), with Gaussian noise of this sigma on each part; a new slice
-   subroutine synth_slice(mbits, sigma, start)
+   ! the clean MSK frame (864 points, c = xi + j xq, genmsk_128_90's half-sine pulses) of 77 bits '0'/'1'
+   subroutine msk_frame(mbits, cf)
       character(len=*) :: mbits
-      real :: sigma
-      integer :: start
+      complex :: cf(NSPM)
       integer*1 :: m(77), cwk(128), bitseq(144), s8(8)
-      real :: pp(12), xi(NSPM), xq(NSPM), ang, zr, zi
-      complex :: cf(NSPM), z(NZ)
-      integer :: ii, jj, is
+      real :: pp(12), xi(NSPM), xq(NSPM)
+      integer :: ii, is
       data s8 /0, 1, 1, 1, 0, 0, 1, 0/
       read(mbits, '(77i1)') m
       call encode_128_90(m, cwk)
@@ -366,6 +363,38 @@ contains
          xi(is:is + 11) = real(bitseq(2*ii))*pp
       enddo
       cf = cmplx(xi, xq)
+   end subroutine msk_frame
+
+   ! synbits are the 77 bits of messages with known fates: the library's own decoder, on the clean frame of
+   ! each, must give these (the strings were found with scripts/msk144-frame-oracle.f90, its MB lines 153, 182
+   ! and 4); the oracle stops if they no longer do
+   subroutine check_synbits()
+      complex :: cf(NSPM), ctt(NSPM)
+      real :: sb(144)
+      character(len=37) :: mg
+      character(len=37), parameter :: want(3) = (/ 'CQ <...>                             ', &
+         'RQ3NXC/R QU1RK R BR49                ', 'K1ABC W9XYZ RR73                     ' /)
+      integer, parameter :: wantns(3) = (/ 0, 0, 1 /)
+      integer :: ii, nsx
+      do ii = 1, 3
+         call msk_frame(synbits(ii), cf)
+         ctt = cf
+         call msk144decodeframe(ctt, sb, mg, nsx)
+         if (mg /= want(ii) .or. nsx /= wantns(ii)) error stop 'oracle: a synbits message no longer decodes as recorded'
+      enddo
+   end subroutine check_synbits
+
+   ! a slice of 7168 points: the analytic signal of the MSK frame of these 77 bits repeated from point `start` on at
+   ! 1500 Hz (the frame's samples are the half-sine pulses of genmsk_128_90's xi and xq, c = xi + j xq, times
+   ! sqrt 2 for unit rms of the real signal), with Gaussian noise of this sigma on each part; a new slice
+   subroutine synth_slice(mbits, sigma, start)
+      character(len=*) :: mbits
+      real :: sigma
+      integer :: start
+      real :: ang, zr, zi
+      complex :: cf(NSPM), z(NZ)
+      integer :: ii, jj
+      call msk_frame(mbits, cf)
       do ii = 1, NZ
          jj = mod(ii - start + 864*10, 864) + 1
          ang = real(mod(6.283185307179586d0*1500.0d0*dble(ii - 1)/12000.0d0, 6.283185307179586d0))

@@ -31,8 +31,9 @@ namespace {
 
 using msk144::cfloat;
 
-// the bits of a float, a NaN as the default one: the oracle does not compare the sign and payload of a NaN
-// (the copy and the library are different objects, and x86 returns the first operand's NaN)
+// the bits of a float, a NaN as the default one: BLIND SPOT: neither side compares the sign and payload of a NaN
+// (the oracle's copy and the library are different objects, and x86 returns the first operand's NaN), so a port
+// that gets a NaN's sign or payload wrong passes (the atan2 sweeps' hashw uses raw bits)
 uint32_t bits_of(float x) {
     if (x != x) return 0x7FC00000u;
     uint32_t b;
@@ -153,15 +154,16 @@ int main() {
         std::istringstream is(line);
         std::string tag;
         is >> tag;
-        if (tag == "PK") {
+        if (tag == "PK" || tag == "PN") {
             int it, i3, n3;
             is >> it;
             size_t after;
             const std::string text = field37(line, 0, &after);
             std::istringstream is2(line.substr(after));
             is2 >> i3 >> n3;  // the oracle's, not used: the port makes its own
-            const msk144::Packjt77::Packed p = pk.pack77_legacy_truncating_fallback(text);
-            std::printf("PK %d |%s| %d %d %s\n", it, text.c_str(), p.i3, p.n3, p.c77.c_str());
+            const bool nosave = tag == "PN";  // record_tx_hashes false: pack77 (these texts pack, so as the fallback does)
+            const msk144::Packjt77::Packed p = nosave ? pk.pack77(text, false) : pk.pack77_legacy_truncating_fallback(text);
+            std::printf("%s %d |%s| %d %d %s\n", tag.c_str(), it, text.c_str(), p.i3, p.n3, p.c77.c_str());
         } else if (tag == "MB") {
             std::puts(line.c_str());  // an input, given back
         } else if (tag == "C") {

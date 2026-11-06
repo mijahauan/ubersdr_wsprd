@@ -14,11 +14,14 @@
 // lroundf.
 //
 // Also atan2f (MSK144's carrier phase): sysdeps/ieee754/flt-32 e_atan2f.c and
-// s_atanf.c (fdlibm's), line for line; glibc 2.42 replaced them with CORE-MATH's
-// correctly rounded ones, which round differently in the last bit.
+// s_atanf.c (fdlibm's), line for line, as glibc 2.39 has them (with its
+// thresholds, measured; fdlibm's differ). Newer glibc rounds atan2f differently
+// in the last bit (the host's 2.41 already does, on the first MSK144 frame), so
+// the platform's is not used.
 //
-// Each is checked equal to glibc 2.39's own on every float on x86-64
-// (tests/test_ft8_maths.cpp, [ft8-maths-libm]).
+// atan2f_glibc's test is the podman frame piece check, which runs the
+// reference's glibc 2.39 atan2 beside it: scripts/msk144-piece-check.sh frame,
+// its AT sweeps (AT 2: every 251st float bit pattern against x = 1).
 #pragma once
 
 namespace ft8 {

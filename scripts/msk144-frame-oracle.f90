@@ -19,6 +19,7 @@
 !
 ! Lines, in the order a case prints them
 !   PK k |text| i3 n3 c77      pack77_legacy_truncating_fallback of a 37-char text
+!   PN k |text| i3 n3 c77      the same, the hashes of its calls not saved (record_tx_hashes false)
 !   MB k m77                   the 77 message bits the frame carries
 !   C k i v...                 the frame cframe(1:864) the decoder is given
 !   RUN k                      msk144decodeframe runs (the copy, then the library)
@@ -49,6 +50,11 @@
 ! Frames are the transmitted waveform (the half-sine pulses of genmsk_128_90's
 ! xi and xq: c = (xi, xq)), rotated by a phase and a frequency error, plus
 ! Gaussian noise (a sum of 12 uniforms less 6, times sigma).
+!
+! Blind spot: NaNs compare equal whatever their sign and payload, and print as
+! the default NaN (cbits below): the instrumented copy and the library are
+! different objects, and x86 returns the first operand's NaN. A port that
+! gets a NaN's sign or payload wrong passes here (the atan2 sweeps hash raw bits).
 !
 ! License: GNU GPL v3 (as WSJT-X)
 program msk144_frame_oracle
@@ -114,11 +120,9 @@ program msk144_frame_oracle
    call direct_encode()
    call direct_fmtmsg()
    call direct_atan2()
-   call direct_genmsk()
-
    ! ---- clean frames of each text, phase and noise as drawn
    do imsg = 1, nmsg
-      call text_bits(imsg, m77, haveframe)
+      call text_bits(imsg, m77, haveframe, imsg == 6)   ! text 6: its hash not saved by the packing
       if (.not. haveframe) cycle
       call do_frame(m77, 0, 0, 0.0, 0.3 + 0.2*real(imsg), 0.0, 1.0, .true., texts(imsg))
    enddo
@@ -193,21 +197,33 @@ program msk144_frame_oracle
       call do_frame(m77, 0, 0, 3.0, 0.0, 0.0, 0.0, .true., texts(1))
    enddo
 
+   ! genmsk_128_90 packs 'CQ PJ4/K1ABC' and the '<PJ4/K1ABC>' message: it runs last, so that it does not save the
+   ! hash before the frames meet it unknown and then known
+   call direct_genmsk()
+
    write(*, '(a,1x,i0)') 'END frame', kc
 
 contains
 
    ! the text of case imsg as 77 bits (pack77_legacy_truncating_fallback as genmsk_128_90 calls it); printed
-   subroutine text_bits(it, m, ok)
+   ! nosave: the encoded calls' hashes are not saved (pack77_options record_tx_hashes false), so that the
+   ! decoder meets the hash unknown; the PN line instead of PK
+   subroutine text_bits(it, m, ok, nosave)
       integer, intent(in) :: it
       integer*1, intent(out) :: m(77)
       logical, intent(out) :: ok
+      logical, intent(in), optional :: nosave
       integer :: i3, n3, jj
       character*77 :: c77
+      type(pack77_options) :: opt
+      logical :: ns
       i3 = -1; n3 = -1
       c77 = ' '
-      call pack77_legacy_truncating_fallback(texts(it), i3, n3, c77)
-      write(*, '(a,1x,i0,1x,a,a,a,1x,i0,1x,i0,1x,a)') 'PK', it, '|', texts(it), '|', i3, n3, c77
+      ns = .false.
+      if (present(nosave)) ns = nosave
+      opt%record_tx_hashes = .not. ns
+      call pack77_legacy_truncating_fallback(texts(it), i3, n3, c77, opt)
+      write(*, '(a,1x,i0,1x,a,a,a,1x,i0,1x,i0,1x,a)') merge('PN', 'PK', ns), it, '|', texts(it), '|', i3, n3, c77
       m = 0
       ok = i3 >= 0 .and. n3 >= 0
       if (ok) then
@@ -367,8 +383,6 @@ contains
       do ii = 1, 864
          if (cbits(real(ctr(ii))) /= cbits(real(clib(ii))) .or. cbits(aimag(ctr(ii))) /= cbits(aimag(clib(ii)))) call differ()
       enddo
-      if (.false.) &
-         error stop 'oracle: msk144decodeframe_trace differs from msk144decodeframe'
       write(*, '(a,1x,i0,1x,i0,1x,a,a,a)') 'R', kc, nlib, '|', mlib, '|'
       call prr('S', kc, sblib, 144)
       call prc('O', kc, clib, 864)

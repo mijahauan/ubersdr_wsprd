@@ -11,8 +11,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <memory>
-#include <mutex>
 
 #include "ft8_maths.h"
 #include "msk144_ldpc.h"
@@ -33,7 +31,7 @@ inline cfloat cmul(cfloat a, cfloat b) {
 }
 inline cfloat conjg(cfloat a) { return cfloat(a.real(), -a.imag()); }
 
-// ---- msk144decodeframe's constants, made at the first call (msk144decodeframe.f90:28-51): pp, the half-sine
+// ---- msk144decodeframe's constants, made at the first call (msk144decodeframe.f90:22-46): pp, the half-sine
 // pulse, and cb, the sync word waveforms. angle=(i-1)*pi/12.0 with pi a real*8 (4d0*datan(1d0)): a double
 // rounded to the float angle; pp(i)=sin(angle). The reference's compiler vectorised the loop: libmvec's
 // _ZGVbN4v_sinf for i = 2..9 (two calls), i = 1 is sin 0, i = 10..12 folded to constants (objdump of the
@@ -77,7 +75,7 @@ Packjt77& msk144_packjt77() {
 }
 void msk144_reset_packjt77() { msk144_packjt77() = Packjt77(); }
 
-// ---- msk144decodeframe.f90:1-124
+// ---- msk144decodeframe.f90:1-112
 void msk144decodeframe(Packjt77& pk, cfloat* c, float* softbits, char* msgreceived, int& nsuccess) {
     static const DecodeConsts K;  // first=.true. branch, once
     const float* pp = K.pp;
@@ -193,7 +191,8 @@ void msk144decodeframe(cfloat* c, float* softbits, char* msgreceived, int& nsucc
     msk144decodeframe(msk144_packjt77(), c, softbits, msgreceived, nsuccess);
 }
 
-// ---- genmsk_128_90.f90 for a decoded message (ichk 0 gives the tones; 1 only msgsent).
+// ---- genmsk_128_90.f90:1-129 for a decoded message (ichk 0 gives the tones; 1 only msgsent): the '@' and genmsk40
+// branches (lines 51-56, 71-78) are not ported; the tones are lines 112-120.
 void genmsk_128_90(Packjt77& pk, const char* msg0, int ichk, char* msgsent, int* i4tone, int& itype) {
     static const char kBad[38] = "*** bad message ***                  ";
     const int s8d[8] = {0, 1, 1, 1, 0, 0, 1, 0};
@@ -275,8 +274,9 @@ void genmsk_128_90(Packjt77& pk, const char* msg0, int ichk, char* msgsent, int*
     for (int i = 0; i < 144; ++i) i4tone[i] = -i4tone[i] + 1;
 }
 
-// ---- msk144signalquality.f90 without the training: the state the training keeps (navg, the averaged cross
-// spectrum, currently_training) is never touched with btrain false.
+// ---- msk144signalquality.f90:1-213: the non-training part, lines 44-129 (the training, 131-212, is compiled out).
+// The state the training keeps (navg, the averaged cross spectrum, currently_training) is never touched with
+// btrain false.
 void msk144signalquality(Packjt77& pk, const cfloat* /*cframe*/, float /*snr*/, float /*freq*/, float /*t0*/,
                          const float* softbits, const char* msg, const char* /*dxcall*/, bool /*btrain*/,
                          const char* /*datadir*/, int& nbiterrors, float& eyeopening, const double* /*pcoeffs*/) {
@@ -336,7 +336,7 @@ void msk144signalquality(const cfloat* cframe, float snr, float freq, float t0, 
                         eyeopening, pcoeffs);
 }
 
-// ---- fmtmsg.f90
+// ---- fmtmsg.f90:1-21
 void fmtmsg(std::string& msg, int& iz) {
     const int len = static_cast<int>(msg.size());
     // Convert all letters to upper case
