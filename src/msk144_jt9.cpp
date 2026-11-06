@@ -29,7 +29,7 @@ Params params_of(const ft8::FileMode& fm) {
     if (hiscall == "b") hiscall.clear();
     Params p;
     p.ntr = static_cast<int>(fm.trperiod);  // params%ntr = int(TRperiod)
-    // jt9.f90:360-368 and init_default_params: ntol = min(ntol, 1000) for the modes without a rule of their own
+    // jt9.f90:359-366 and init_default_params: ntol = min(ntol, 1000) for the modes without a rule of their own
     p.ntol = std::min(fm.ntol, 1000);
     p.nfqso = fm.nrxfreq;
     p.ndepth = fm.ndepth;
@@ -53,7 +53,7 @@ bool decode_file(RtdState& st, const Params& p, const ft8::FileMode& fm, const s
         why = "unsupported " + std::to_string(wav.rate) + " Hz WAV sample rate for the selected mode";
         return false;
     }
-    // jt9.f90:394-441: nsps 6912, kstep 3456, npts = TRperiod*12000, nblocks = npts/kstep
+    // jt9.f90:394-447: nsps 6912, kstep 3456, npts = TRperiod*12000, nblocks = npts/kstep
     constexpr long KSTEP = 6912 / 2;
     const long npts = static_cast<long>(fm.trperiod * 12000.0);
     const long nblocks = npts / KSTEP;
@@ -87,7 +87,7 @@ bool decode_file(RtdState& st, const Params& p, const ft8::FileMode& fm, const s
                       p.mycall, p.hiscall, out);
 
     // The "normal decoding pass": multimode_decoder, which for MSK144 opens decoded.txt once the rms of
-    // id2(1:180000) reaches 0.5 and says <DecodeFinished> 0 0 0 (decoder.f90:93-97)
+    // id2(1:180000) reaches 0.5 and says <DecodeFinished> 0 0 0 (decoder.f90:104-107)
     float sum = 0.0f;
     for (long i = 0; i < 180000; ++i) {
         const float x = i < static_cast<long>(id2.size()) ? static_cast<float>(id2[static_cast<size_t>(i)]) : 0.0f;

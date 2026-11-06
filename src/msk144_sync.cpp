@@ -36,8 +36,9 @@ inline cfloat cmul(cfloat a, cfloat b) {
 }
 
 // nint of a float (the reference calls lroundf) and of a double (lround), as the default integer
-inline int nint_f(float x) { return static_cast<int>(lroundf(x)); }
-inline int nint_d(double x) { return static_cast<int>(lround(x)); }
+// (llround: a 64-bit result everywhere, so NaN and infinity truncate to 0 on Windows, where long is 32 bits, as on Linux)
+inline int nint_f(float x) { return static_cast<int>(llroundf(x)); }
+inline int nint_d(double x) { return static_cast<int>(llround(x)); }
 
 // MAX(a, b) as the reference's msk144spd leaves it (objdump: maxss with b, the later argument, in the
 // destination): b if it is greater than a, else a: a when either is NaN

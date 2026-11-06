@@ -19,7 +19,8 @@
 # ft2-jt9). Then MSK144's (jt9 -k): the cases in tests/data/msk144/cases/
 # (the reference's outputs, scripts/msk144-oracle.sh), left out while the jt9
 # run does not list --msk144 in its usage, the shmsg and swl variants
-# (--msk-shmsg, --msk-swl) while it lists neither, and the cases on an odd
+# (--msk-shmsg, --msk-swl) while it lists neither (a jt9 listing --spread: only
+# under JT9_WINE_MSK_FLAGS=pending), and the cases on an odd
 # input (@I/..., made by scripts/jt9-compare.sh) always. FT8's, FT4's, FT2's and
 # MSK144's run several at once (JT9_WINE_JOBS,
 # default nproc), each in its own directory.
@@ -115,13 +116,18 @@ done < <(find "$repo/tests/data/fst4w/cases" -name args.txt | sort)
 ft8=() nft4=0 nft2=0 nmsk=0
 usage_text=$(jt9 -h 2> /dev/null | tr -d '\r' || true)
 # Our port lists --spread (the WSJT-X reference does not). With it, every MSK144
-# case runs, and fails when --msk144 is missing. The shmsg and swl variants
-# (--msk-shmsg, --msk-swl, Task 7's) run once the usage lists both, and are
-# left out, loudly, until then.
+# case runs, the shmsg and swl variants (--msk-shmsg, --msk-swl, Task 7's) too,
+# and fails when an option is missing: nothing is left out. Only
+# JT9_WINE_MSK_FLAGS=pending (build.sh, until Task 7 gives the port its two
+# flags; Task 7 removes it there) leaves those two variants out, loudly. Without
+# --spread (the reference as the jt9 under test) the usage decides.
 msk_ok=false msk_flags=false msk_left=0
 [[ $usage_text == *--msk144* ]] && msk_ok=true
 [[ $usage_text == *--msk-shmsg* && $usage_text == *--msk-swl* ]] && msk_flags=true
-if [[ $usage_text == *--spread* ]]; then msk_ok=true; fi
+if [[ $usage_text == *--spread* ]]; then
+    msk_ok=true
+    [[ ${JT9_WINE_MSK_FLAGS:-} == pending ]] || msk_flags=true
+fi
 while IFS= read -r a; do
     missing=
     d=$(dirname "$a")
@@ -197,9 +203,12 @@ for d in "${ft8[@]}"; do
     else pass=$((pass + 1)); fi
 done
 
-echo "jt9-wine-check: MSK144: $nmsk cases ran, $msk_left left out (--msk144 in the usage: $msk_ok, the flags: $msk_flags)" >&2
-if [[ $usage_text == *--spread* ]] && [[ -z ${JT9_WINE_ONLY:-} ]] && (( nmsk + msk_left < 335 )); then
-    echo "jt9-wine-check: FAIL: only $((nmsk + msk_left)) of the 335 MSK144 cases are here" >&2; fail=$((fail + 1))
+echo "jt9-wine-check: MSK144: $nmsk cases ran, $msk_left left out (--msk144 in the usage: $msk_ok, the flags: $msk_flags${JT9_WINE_MSK_FLAGS:+, JT9_WINE_MSK_FLAGS=$JT9_WINE_MSK_FLAGS})" >&2
+if [[ $usage_text == *--spread* ]] && [[ -z ${JT9_WINE_ONLY:-} ]]; then
+    # left-out cases never count toward the floor; without the marker nothing may be left out
+    (( nmsk < 344 - msk_left )) && { echo "jt9-wine-check: FAIL: only $nmsk of the MSK144 cases ran" >&2; fail=$((fail + 1)); }
+    (( msk_left > 0 )) && [[ ${JT9_WINE_MSK_FLAGS:-} != pending ]] && { echo "jt9-wine-check: FAIL: $msk_left MSK144 cases left out" >&2; fail=$((fail + 1)); }
+    (( nmsk + msk_left < 344 )) && { echo "jt9-wine-check: FAIL: only $((nmsk + msk_left)) of the 344 MSK144 cases are here" >&2; fail=$((fail + 1)); }
 fi
 label="jt9.exe under wine"; $native && label="$(basename "$exe")"
 acc_note=; (( accept )) && acc_note=", $accept as accepted for arm64 (tests/data/jt9-arm64-accepted.txt)"

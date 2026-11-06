@@ -118,6 +118,10 @@ fi
 #       "<W9XYZ> PJ4/K1ABC RRR" at 9 s (a hashed call: it prints <...> unless the
 #       decoder has seen W9XYZ in full); and the two files' samples added (the
 #       hash resolves in the second ping)
+#   offgrid-f1537-sm06, offgrid-f1537-sm04: the carrier at 1537 Hz (on none of the
+#       averaging searches' frequency grids, as every other carrier is), a 1 s
+#       ping at -6 and -4 dB: the -d 1 short-ping decoder misses them, and
+#       the -d 3 averages find them, so msk144sync's step (10/navg Hz) shows
 #   early-ping: a ping at 0.15 s, +10 dB: decoded in the first block, where mskrtd
 #       has no noise level yet (SNR 0), so a state carried over from a file
 #       before it would show in the SNR
@@ -145,4 +149,6 @@ PYEOF
 echo "$stem 15" >> "$focus"
 genf "freq-edge-f0800" 15 8 0.2 5 800 "$M"
 genf "early-ping" 15 10 0.2 0.15 1500 "$M"
+genf "offgrid-f1537-sm06" 15 -6 1 5 1537 "$M"
+genf "offgrid-f1537-sm04" 15 -4 1 5 1537 "$M"
 echo "msk144-sim-grid: $(grep -c . "$manifest") files in $out, $(grep -c . "$focus") more in MANIFEST.focus" >&2

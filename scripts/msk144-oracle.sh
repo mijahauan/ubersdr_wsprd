@@ -306,6 +306,8 @@ focus)
     hashb=$(ls "$repo/$sim"/hash-b-*.wav | sed "s|^$repo/||")
     m200=$(ls "$repo/$sim"/freq-m200-sm02-*.wav | sed "s|^$repo/||")
     edge=$(ls "$repo/$sim"/freq-edge-f0800-*.wav | sed "s|^$repo/||")
+    og6=$(ls "$repo/$sim"/offgrid-f1537-sm06-*.wav | sed "s|^$repo/||")
+    og4=$(ls "$repo/$sim"/offgrid-f1537-sm04-*.wav | sed "s|^$repo/||")
     early=$(ls "$repo/$sim"/early-ping-*.wav | sed "s|^$repo/||")
     B="-a . -k -p 15 -f 1500 -F 200 -d 3"
 
@@ -370,7 +372,7 @@ focus)
         return 0
     }
     rm -rf "$work/focus-run"; mkdir -p "$work/focus-run"
-    rm -rf "$data"/cases/{repeat-across-files,lastmode-Y,lastmode-8,ntol-wide,freq-edge}
+    rm -rf "$data"/cases/{repeat-across-files,lastmode-Y,lastmode-8,ntol-wide,freq-edge,offgrid-sm06,offgrid-sm04}
 
     # a decode in the first block twice (its SNR, with no noise level yet, shows state kept from the file before),
     # the same decode further in twice, then a hashed call that the first file's earlier message resolves and a
@@ -384,10 +386,18 @@ focus)
     # -F beyond what jt9.f90 allows (min(ntol, 1000))
     for F in 300 1000 1001 5000; do single ntol-wide "F$F" "$m200" -a . -k -p 15 -f 1500 -F $F -d 3; done
     # -f at the band's edges
-    for a in "200 1000" "200 700" "200 200" "0 1000" "800 1000" "6000 5000" "9000 1000"; do
+    # (f2000-F5000: 1200 Hz from the carrier, past what jt9.f90's limit of 1000 reaches; f1801 and f1802 sit
+    # 1001 and 1002 Hz away, where a limit of 1001 would answer differently)
+    for a in "200 1000" "200 700" "200 200" "0 1000" "800 1000" "6000 5000" "9000 1000" "2000 5000" "2000 1000" \
+             "1801 5000" "1802 5000" "1803 5000"; do
         set -- $a; single freq-edge "f$1-F$2" "$edge" -a . -k -p 15 -f $1 -F $2 -d 3
     done
-    echo "msk144-oracle: focus: $(ls -d "$data"/cases/{repeat-across-files,lastmode-Y,lastmode-8,ntol-wide,freq-edge}/jt9-* | wc -l) runs stored" >&2
+    # an off-grid carrier: -d 1 (short pings only) and -d 3 (the averages too)
+    for d in 1 3; do
+        single offgrid-sm06 d$d "$og6" -a . -k -p 15 -f 1500 -F 200 -d $d
+        single offgrid-sm04 d$d "$og4" -a . -k -p 15 -f 1500 -F 200 -d $d
+    done
+    echo "msk144-oracle: focus: $(ls -d "$data"/cases/{repeat-across-files,lastmode-Y,lastmode-8,ntol-wide,freq-edge,offgrid-sm06,offgrid-sm04}/jt9-* | wc -l) runs stored" >&2
     ;;
 
 # ---------------------------------------------------------------- fortran

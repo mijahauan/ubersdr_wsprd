@@ -271,7 +271,9 @@ if $check && [ "${WSPRD_SKIP_COMPARE:-0}" != 1 ]; then
 fi
 if $check && [ "${JT9_SKIP_COMPARE:-0}" != 1 ]; then
     say "checking jt9 against WSJT-X's jt9's stored outputs"
-    "$root/scripts/jt9-wine-check.sh" "$build/jt9" "$build/stored-jt9"
+    # JT9_WINE_MSK_FLAGS=pending: the shmsg and swl variants (--msk-shmsg, --msk-swl) wait for Task 7, and are
+    # named loudly as left out. Task 7 removes the marker here and at the .exe check below.
+    JT9_WINE_MSK_FLAGS=pending "$root/scripts/jt9-wine-check.sh" "$build/jt9" "$build/stored-jt9"
 fi
 if $check && [ "${WSPRD_SKIP_COMPARE:-0}" != 1 ] && [ "${JT9_SKIP_COMPARE:-0}" != 1 ]; then
     say "checking wsprd and jt9 on 32-bit float input against the same samples as 16-bit"
@@ -358,7 +360,7 @@ if command -v wine >/dev/null; then
     # made by --deep-check, or kept from an earlier one) printed and written
     # as WSJT-X's.
     say "checking jt9.exe under wine"
-    "$root/scripts/jt9-wine-check.sh" "$wbuild/jt9-windows-x86_64.exe" "$build/wine-jt9"
+    JT9_WINE_MSK_FLAGS=pending "$root/scripts/jt9-wine-check.sh" "$wbuild/jt9-windows-x86_64.exe" "$build/wine-jt9"
 else
     echo "wine is not installed: wsprd.exe and jt9.exe are built but not checked"
 fi

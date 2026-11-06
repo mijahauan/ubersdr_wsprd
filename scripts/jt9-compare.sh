@@ -628,7 +628,7 @@ if (( new_spread )); then
     for spec in "${cases[@]}"; do
         [[ ${spec%%|*} == msk144-* && ( -z $only || ${spec%%|*} =~ $only ) ]] && want=$((want + 1))
     done
-    floor=355; [[ -n $only ]] && floor=0
+    floor=364; [[ -n $only ]] && floor=0
     echo "jt9-compare: MSK144: $nmsk of $want cases ran (at least $floor expected)" >&2
     if (( nmsk < want || nmsk < floor )); then
         echo "jt9-compare: FAIL: MSK144 cases did not all run" >&2; fails=1

@@ -24,13 +24,14 @@ constexpr int NSPM = 864;      // samples per message frame
 constexpr int NFFT1 = 8192;    // FFT size for making the analytic signal
 constexpr int NPATTERNS = 4;   // number of frame averaging patterns to try
 
-inline int nint_f(float x) { return static_cast<int>(lroundf(x)); }
+inline int nint_f(float x) { return static_cast<int>(llroundf(x)); }
 
 std::string blank37() { return std::string(37, ' '); }
 
 }  // namespace
 
-// ---- mskrtd.f90:1-205 (bshmsg, btrain and bswl false: lines 128-133 and 205's bswl branch are Task 7's)
+// ---- mskrtd.f90:1-241 (bshmsg, btrain and bswl false: msk40spd, lines 129-134, and the bswl branch, lines 221-237,
+// are Task 7's)
 std::string mskrtd(RtdState& st, packjt77::Packjt77& pk, const int16_t* id2, int nutc0, float tsec, int ntol,
                    int nrxfreq, int ndepth, const std::string& mycall12, const std::string& hiscall12) {
     // data iavpatterns/ 1,1,1,1,0,0,0,0, 0,0,1,1,1,1,0,0, 1,1,1,1,1,0,0,0, 1,1,1,1,1,1,1,0/, (8,NPATTERNS)
@@ -60,7 +61,7 @@ std::string mskrtd(RtdState& st, packjt77::Packjt77& pk, const int16_t* id2, int
     bool bshdecode = false;  // bshmsg and bswl are false: msk40spd is never tried
     std::string line;
 
-    if (st.first) {  // lines 71-90
+    if (st.first) {  // lines 59-80
         st.tsec0 = tsec;
         st.nutc00 = nutc0;
         st.pnoise = -1.0f;
