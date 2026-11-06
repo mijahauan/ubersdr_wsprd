@@ -81,8 +81,9 @@ runs `--feed` with `stdin.txt` (paths from the repository's root) as stdin.
 | `repeat-across-files` | `files`: one command line, `feed`: `--feed`. Six files: a decode in the first block twice (its SNR carries any state from the file before), the 181211_120500 sample twice, a file with a hashed call that the earlier message resolves (`<W9XYZ> PJ4/K1ABC RRR`), a file with the hashed message alone (`<...>`), both again. `feed` prints `<FileDone> PATH N` after each file, N its decode lines |
 | `lastmode-Y`          | `Ymsk144` (`-Y --msk144`: MSK144), `msk144Y` (`--msk144 -Y`: FST4W)                        |
 | `lastmode-8`          | `8msk144` (MSK144), `msk1448` (`--msk144 -8`: FT8)                                         |
-| `ntol-wide`           | `-F 300`, `1000`, `1001`, `5000` on a -200 Hz offset (jt9.f90 limits `-F` to 1000)        |
-| `freq-edge`           | `-f 0`, `200`, `800`, `6000`, `9000` with `-F` 200 to 5000, on an 800 Hz carrier           |
+| `ntol-wide`           | `-F 300`, `1000`, `1001`, `5000` on a -200 Hz offset (jt9.f90 limits `-F` to 1000); the `f2000` runs of `freq-edge` cover `-F` above 1000 from the other side |
+| `freq-edge`           | `-f 0`, `200`, `800`, `1801`, `1802`, `1803`, `2000`, `6000`, `9000` with `-F` 200 to 5000, on an 800 Hz carrier. `-f 1801`, `1802` and `1803` (each with `-F 5000`) sit 1001, 1002 and 1003 Hz from the carrier, where a limit of 1001 would answer differently; `-f 2000` (with `-F 5000` and `-F 1000`) is 1200 Hz away, past what the limit of 1000 reaches |
+| `offgrid-sm06`, `offgrid-sm04` | `d1`, `d3`: a 1 s ping at -6 dB and at -4 dB on a 1537 Hz carrier, which lies on none of the averaging searches' frequency grids: `-d 1` (short pings only) misses it and `-d 3` (the averages) finds it, so msk144sync's step of 10/navg Hz shows |
 
 Their inputs are listed in `recordings/msk144-sim/MANIFEST.focus` (made by
 `scripts/msk144-sim-grid.sh`, which gives `corpus` no variants on them).
