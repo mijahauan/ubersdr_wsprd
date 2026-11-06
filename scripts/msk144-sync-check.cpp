@@ -197,6 +197,7 @@ int main() {
     msk144::spd_trace.sync = t_spd_sync;
 
     std::map<int, std::vector<float>> islice;
+    int kmax = 0;  // the last case number: the oracle's END count
     for (const std::string& ln : lines) {
         std::istringstream is(ln);
         std::string tag;
@@ -212,6 +213,7 @@ int main() {
         } else if (tag == "L") {
             int k, kind, n, lo, hi, res;
             is >> k >> kind >> n >> lo >> hi >> res;
+            kmax = std::max(kmax, k);
             std::vector<float> a(static_cast<size_t>(std::max(n, 1)));
             std::string hex;
             for (int i = 0; i < n; ++i) {
@@ -230,6 +232,7 @@ int main() {
         } else if (tag == "J") {
             int k, n;
             is >> k >> n;
+            kmax = std::max(kmax, k);
             std::vector<float> a(static_cast<size_t>(n));
             std::string hex;
             for (int i = 0; i < n; ++i) {
@@ -247,6 +250,7 @@ int main() {
             int k, nb, pb;
             std::string reshex, hex;
             is >> k >> nb >> pb >> reshex;
+            kmax = std::max(kmax, k);
             std::vector<cfloat> sp(static_cast<size_t>(nb));
             for (int i = 0; i < nb; ++i) {
                 is >> hex;
@@ -262,6 +266,7 @@ int main() {
             int k, nfft;
             std::string lohex, hihex;
             is >> k >> nfft >> lohex >> hihex;
+            kmax = std::max(kmax, k);
             int lo, hi;
             bool u;
             msk144::msk_clip_spectrum_window(nfft, double_of(lohex), double_of(hihex), lo, hi, u);
@@ -272,6 +277,7 @@ int main() {
             int k, s, off, nf, ntol, mask[8], npeaks, nanidx, infidx;
             std::string delfhex, fchex, scalehex;
             is >> k >> s >> off >> nf >> ntol >> delfhex;
+            kmax = std::max(kmax, k);
             for (int i = 0; i < 8; ++i) is >> mask[i];
             is >> npeaks >> fchex >> nanidx >> infidx >> scalehex;
             std::vector<cfloat> cdat(static_cast<size_t>(NSPM) * 8, cfloat(0.0f, 0.0f));
@@ -291,6 +297,7 @@ int main() {
             int k, s, n, ntol, nanidx, infidx;
             std::string fchex, scalehex;
             is >> k >> s >> n >> ntol >> fchex >> nanidx >> infidx >> scalehex;
+            kmax = std::max(kmax, k);
             std::vector<cfloat> cbig(static_cast<size_t>(std::max(n, 1)));
             make_input(s, 0, n, nanidx, infidx, float_of(scalehex), cbig.data());
             std::vector<cfloat> ct(NSPM, cfloat(7.0f, -7.0f));
@@ -332,12 +339,13 @@ int main() {
             prc("V", k, ct.data(), NSPM);
         } else if (tag == "P" || tag == "B" || tag == "R" || tag == "N" || tag == "T" || tag == "D" || tag == "H" || tag == "O" ||
                    tag == "M" || tag == "E" || tag == "G" || tag == "Q" || tag == "Y" || tag == "Z" || tag == "F" || tag == "X" ||
-                   tag == "U" || tag == "V") {
+                   tag == "U" || tag == "V" || tag == "END") {
             continue;
         } else {
             std::fprintf(stderr, "msk144-sync-check: unknown line: %s\n", ln.c_str());
             return 1;
         }
     }
+    std::printf("END sync %d\n", kmax);
     return 0;
 }

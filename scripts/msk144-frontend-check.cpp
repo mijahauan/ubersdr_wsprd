@@ -92,6 +92,7 @@ void store(const std::string& line, std::vector<float>& into) {
 int main() {
     constexpr int NSPM = 864;
     std::string line;
+    int kmax = 0;  // the last case number: the oracle's END count
     std::map<int, std::vector<float>> din, oraclo;  // case -> the input d, the oracle's O (re, im pairs)
     std::vector<float> cbv;
     struct Case {
@@ -118,6 +119,7 @@ int main() {
             cur.beq = beq != 0;
             for (int i = 0; i < 5; ++i) cur.pc[i] = double_of(h[i]);
             curk = k;
+            kmax = std::max(kmax, k);
         } else if (tag == "D") {
             std::puts(line.c_str());
             store(line, din[curk]);
@@ -140,6 +142,7 @@ int main() {
             int k, src, jz;
             std::string f0hex;
             is >> k >> src >> jz >> f0hex;
+            kmax = std::max(kmax, k);
             const std::vector<float>& o = oraclo[src];
             std::vector<cfloat> ca(static_cast<size_t>(jz)), cb(static_cast<size_t>(jz));
             for (int i = 0; i < jz; ++i) ca[i] = cfloat(o[2 * i], o[2 * i + 1]);
@@ -153,6 +156,7 @@ int main() {
             int k, src, nfr, mask[8], if1, if2;
             std::string fchex, delfhex;
             is >> k >> src >> nfr;
+            kmax = std::max(kmax, k);
             for (int i = 0; i < 8; ++i) is >> mask[i];
             is >> fchex >> if1 >> if2 >> delfhex;
             const float fc = float_of(fchex), delf = float_of(delfhex);
@@ -179,7 +183,7 @@ int main() {
                 std::printf("Q %d %d %08X %08X\n", k, ifr, bits_of(x1), bits_of(b1));
             }
             sskip = k;
-        } else if (tag == "X" || tag == "Y" || tag == "Z" || tag == "V" || tag == "Q") {
+        } else if (tag == "X" || tag == "Y" || tag == "Z" || tag == "V" || tag == "Q" || tag == "END") {
             continue;
         } else {
             std::fprintf(stderr, "msk144-frontend-check: unknown line: %s\n", line.c_str());
@@ -188,5 +192,6 @@ int main() {
     }
     (void)tskip;
     (void)sskip;
+    std::printf("END frontend %d\n", kmax);
     return 0;
 }

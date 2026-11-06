@@ -275,6 +275,8 @@ program msk144_sync_oracle
    call run_spd(k, 99, 22464, 200, 1500.0, 0, 0, 1.0)     ! 99
    call run_spd(k, 99, 22680, 200, 1500.0, 0, 0, 1.0)     ! 101 asked for
    call run_spd(k, 99, 28000, 200, 1500.0, 15000, 0, 1.0)
+   ! the end marker: a truncated output (a failed self-check, a crash) cannot match without it
+   write(*, '(a,1x,i0)') 'END sync', k
 
 contains
 

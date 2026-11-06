@@ -91,7 +91,7 @@ program msk144_frontend_oracle
    k = 0
    do ifile = 1, 4
       open(10, file=trim(path(ifile)), access='stream', form='unformatted', status='old', iostat=ios)
-      if (ios /= 0) stop 'oracle: cannot open a WAV'
+      if (ios /= 0) error stop 'oracle: cannot open a WAV'
       inquire(10, size=nsamp)
       nsamp = (nsamp - 44)/2
       allocate(wav(nsamp))
@@ -207,6 +207,8 @@ program msk144_frontend_oracle
    d(1:NF) = 0.0
    d(1:NZ) = real(osave(1:NZ, 5)) - 2.0
    call run_analytic(k, d, NZ, NF, pc, beq)
+   ! the end marker: a truncated output (a failed self-check, a crash) cannot match without it
+   write(*, '(a,1x,i0)') 'END frontend', k
 
 contains
 
@@ -270,7 +272,8 @@ contains
       pctr = pcc
       call analytic_trace(dd, np, nfft_, ca, pctr, beqq)    ! prints H, K, F, G
       call analytic(dd, np, nfft_, cb2, pcc, beqq)
-      if (any(transfer(ca(1:nfft_), (/0/)) /= transfer(cb2(1:nfft_), (/0/)))) stop 'oracle: analytic_trace differs from analytic'
+      if (any(transfer(ca(1:nfft_), (/0/)) /= transfer(cb2(1:nfft_), (/0/)))) &
+         error stop 'oracle: analytic_trace differs from analytic'
       call prc('O', kk, ca, nfft_)
       osave(1:nfft_, kk) = ca(1:nfft_)
       osave(nfft_+1:NF, kk) = 0.0

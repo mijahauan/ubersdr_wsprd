@@ -46,6 +46,7 @@ void trace(int iter, const float zn[129], const float tov[4][129]) {
 
 int main() {
     std::string line;
+    int nrun = 0;  // decodes run: the oracle's END count
     float llr[128] = {};
     signed char m77[77] = {};
     int maxiter = 10, want_trace = 0;
@@ -71,6 +72,7 @@ int main() {
             for (int i = 0; i < 77; ++i) m += static_cast<char>('0' + m77[i]);
             for (int i = 0; i < 128; ++i) c += static_cast<char>('0' + cw[i]);
             std::printf("R %d %d %d %s %s %d\n", maxiter, iter, nharderror, m.c_str(), c.c_str(), nbadcrc);
+            ++nrun;
         } else if (line.rfind("C ", 0) == 0) {
             signed char word[90];
             for (int i = 0; i < 90; ++i) word[i] = static_cast<signed char>(line[2 + i] - '0');
@@ -83,5 +85,6 @@ int main() {
             std::printf("T %08X %08X\n", bits_of(x), bits_of(ft8::tanhf_glibc(x)));
         }
     }
+    std::printf("END ldpc %d\n", nrun);
     return 0;
 }

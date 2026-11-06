@@ -40,7 +40,7 @@ program msk144_ldpc_oracle
    integer*8 :: state
    integer*1 :: apmask(128), msg(77), cw(128), cwout(128), m77(77), word(90), enc(40,128)
    real :: llr(128), sigma(0:2), s
-   integer :: ibits(128), iv, i, j, k, maxiter, iter, nharderror, nbadcrc, nenc, ntrace
+   integer :: ibits(128), iv, i, j, k, maxiter, iter, nharderror, nbadcrc, nenc, ntrace, nrun
    logical :: ltrace
    common /msktrace/ ltrace
    external platanh
@@ -50,6 +50,7 @@ program msk144_ldpc_oracle
    state = 20261106_8
    m77 = 0
    nenc = 0
+   nrun = 0
    do iv = 1, 240
       if (iv .le. 200) then
          do i = 1, 77
@@ -83,6 +84,7 @@ program msk144_ldpc_oracle
       word = cwout(1:90)
       call chkcrc13a(word, nbadcrc)
       write(*, '(a,i0,1x,i0,1x,i0,1x,77i1,1x,128i1,1x,i0)') 'R ', maxiter, iter, nharderror, m77, cwout, nbadcrc
+      nrun = nrun + 1
    enddo
 
    do iv = 1, 40
@@ -131,6 +133,8 @@ program msk144_ldpc_oracle
       call th(real(8.5d0 + 1.0d0 * nextu()))
       call th(real(-8.5d0 - 1.0d0 * nextu()))
    enddo
+   ! the end marker: a truncated output (a failed self-check, a crash) cannot match without it
+   write(*, '(a,1x,i0)') 'END ldpc', nrun
 contains
    real function pb(k)
       integer, intent(in) :: k

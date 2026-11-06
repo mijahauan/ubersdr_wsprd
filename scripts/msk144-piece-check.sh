@@ -142,9 +142,24 @@ if [[ $piece == sync ]]; then
     cat "$oracle_src" "$work/trace-sync.f90" "$work/trace-spd.f90" > "$oracle_full"
 fi
 
+# An oracle that fails a self-check dies with `error stop` (non-zero exit), and every oracle ends its
+# output with one line, "END <piece> <count>", which the driver prints too (its own count): an output
+# cut short, by a crash, a `stop` that exits 0 or a full disk, lacks it and cannot match. Both are
+# required here before the two outputs are compared.
+run_oracle() {  # BINARY OUTFILE [env args...]
+    local bin=$1 out=$2; shift 2
+    if ! "$repo/scripts/msk144-oracle.sh" exec "$@" "$bin" "$repo" > "$out"; then
+        echo "msk144-piece-check: $piece: the oracle exited non-zero (output $out, $(wc -l < "$out") lines)" >&2
+        tail -3 "$out" >&2 || true
+        exit 1
+    fi
+    grep -Eq "^END $piece [0-9]+\$" <(tail -n 1 "$out") ||
+        { echo "msk144-piece-check: $piece: the oracle's output ($out) does not end with 'END $piece N': truncated" >&2; exit 1; }
+}
+
 # the oracle
 oracle=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_full" "msk144-$piece-oracle")
-"$repo/scripts/msk144-oracle.sh" exec "$oracle" "$repo" > "$work/oracle.out"
+run_oracle "$oracle" "$work/oracle.out"
 
 # sync: the release jt9 links the OpenMP variant of the library (msk144sync then runs
 # min(4, OMP_GET_MAX_THREADS()) threads, each with a slice of the trial frequencies, merged by a strict >).
@@ -152,8 +167,7 @@ oracle=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_full" "msk144-$piece-
 # threads (a full team: OMP_DYNAMIC=false, OMP_THREAD_LIMIT unset), must print the same.
 if [[ $piece == sync ]]; then
     oracle_omp=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_full" "msk144-$piece-oracle-omp" omp)
-    "$repo/scripts/msk144-oracle.sh" exec env -u OMP_THREAD_LIMIT OMP_NUM_THREADS=4 OMP_DYNAMIC=false \
-        "$oracle_omp" "$repo" > "$work/oracle-omp.out"
+    run_oracle "$oracle_omp" "$work/oracle-omp.out" env -u OMP_THREAD_LIMIT OMP_NUM_THREADS=4 OMP_DYNAMIC=false
     cmp -s "$work/oracle.out" "$work/oracle-omp.out" ||
         { echo "msk144-piece-check: sync: the OpenMP library at 4 threads DIFFERS: diff $work/oracle.out $work/oracle-omp.out" >&2
           diff "$work/oracle.out" "$work/oracle-omp.out" | head -10 >&2 || true; exit 1; }
@@ -162,7 +176,8 @@ fi
 # the driver (no output file if the port is missing: the link fails)
 rm -f "$work/driver"
 "$cxx" "${flags[@]}" "$driver_src" "${srcs[@]}" -lfftw3f -lm -lpthread -o "$work/driver"
-"$work/driver" < "$work/oracle.out" > "$work/driver.out"
+"$work/driver" < "$work/oracle.out" > "$work/driver.out" ||
+    { echo "msk144-piece-check: $piece: the driver exited non-zero" >&2; tail -3 "$work/driver.out" >&2 || true; exit 1; }
 
 if cmp -s "$work/oracle.out" "$work/driver.out"; then
     if [[ $piece == frontend ]]; then
