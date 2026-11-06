@@ -2,7 +2,8 @@
 // output (scripts/msk144-ldpc-oracle.f90) on stdin, takes its L, C, P and T
 // lines as inputs, and prints every line as the reference printed it, the
 // results from src/msk144_ldpc.cpp (and ft8::tanhf_glibc) instead; the oracle's
-// I, J and R lines are not read, the port's trace hook and decoder make them.
+// R lines and trace lines (I, J, BZ, BV, BO, BH) are not read, the port's
+// decoder and its trace hooks (scripts/msk144-bp-trace.h) make them.
 // The two outputs must be identical byte for byte.
 //
 // License: GNU GPL v3 (as WSJT-X)
@@ -15,6 +16,7 @@
 
 #include "ft8_ldpc.h"
 #include "msk144_ldpc.h"
+#include "msk144-bp-trace.h"
 
 namespace {
 
@@ -28,18 +30,6 @@ float float_of(const std::string& hex) {
     float x;
     std::memcpy(&x, &b, 4);
     return x;
-}
-
-// msk144_trace_print in the oracle: the same sums in the same order.
-void trace(int iter, const float zn[129], const float tov[4][129]) {
-    float s1 = 0.0f;
-    for (int i = 1; i <= 128; ++i) s1 = s1 + zn[i];
-    float s2 = 0.0f;
-    for (int j = 1; j <= 128; ++j)
-        for (int kk = 1; kk <= 3; ++kk) s2 = s2 + tov[kk][j];
-    std::printf("I %d %08X %08X %08X %08X %08X %08X %08X\n", iter, bits_of(s1), bits_of(s2), bits_of(zn[1]),
-                bits_of(zn[65]), bits_of(zn[128]), bits_of(tov[1][1]), bits_of(tov[2][64]));
-    std::printf("J %08X\n", bits_of(tov[3][128]));
 }
 
 }  // namespace
@@ -62,9 +52,9 @@ int main() {
         } else if (line.rfind("R ", 0) == 0) {
             int nharderror = -99, iter = -99;
             signed char cw[128] = {};
-            msk144::bpdecode128_90_trace = want_trace ? trace : nullptr;
+            if (want_trace) bp_trace::install();
             msk144::bpdecode128_90(llr, maxiter, m77, cw, nharderror, iter);
-            msk144::bpdecode128_90_trace = nullptr;
+            bp_trace::remove();
             signed char word[90];
             std::memcpy(word, cw, 90);
             const int nbadcrc = msk144::chkcrc13a(word) ? 0 : 1;

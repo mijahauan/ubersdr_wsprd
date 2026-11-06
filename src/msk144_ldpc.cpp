@@ -16,6 +16,7 @@
 namespace msk144 {
 
 Bpdecode128_90Trace bpdecode128_90_trace = nullptr;
+Bpdecode128_90MsgTrace bpdecode128_90_msg_trace = nullptr;
 
 namespace {
 
@@ -171,6 +172,7 @@ int bpdecode128_90(const float llr_in[128], int maxiterations, signed char messa
         // send messages from check nodes to variable nodes
         for (int i = 1; i <= M; ++i)
             for (int r = 1; r <= 11; ++r) tanhtoc[r][i] = ft8::tanhf_glibc(-toc[r][i] / 2);
+        if (bpdecode128_90_msg_trace && iter < maxiterations) bpdecode128_90_msg_trace(iter, toc, tanhtoc);
 
         for (int j = 1; j <= N; ++j)
             for (int i = 1; i <= ncw; ++i) {

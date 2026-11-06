@@ -26,6 +26,12 @@ float platanh(float x);
 // unused), as the Fortran's arrays are.
 using Bpdecode128_90Trace = void (*)(int iter, const float zn[129], const float tov[4][129]);
 extern Bpdecode128_90Trace bpdecode128_90_trace;
+// The same for the messages from bits to checks: called after the tanh, in
+// each iteration whose messages are read again (iter < maxiterations), with
+// toc(1:11,1:38) and tanhtoc(1:11,1:38), 1-based in both indices as the
+// Fortran's; only rows 1..nrw(j) of check j are set (the rest are never read).
+using Bpdecode128_90MsgTrace = void (*)(int iter, const float toc[12][39], const float tanhtoc[12][39]);
+extern Bpdecode128_90MsgTrace bpdecode128_90_msg_trace;
 
 // bpdecode128_90(llr, apmask, maxiterations, message77, cw, nharderror, iter),
 // with apmask all zero, as msk144decodeframe passes it. message77 is written
