@@ -24,17 +24,29 @@
 namespace msk144 {
 
 // msk144decodeframe(c, softbits, msgreceived, nsuccess): c the NSPM = 864
-// points of a frame, softbits 144 values out, msgreceived 37 characters (blank
+// points of a frame, which the decoder corrects in place (the phase
+// correction, msk144decodeframe.f90:59: msk144signalquality later reads the
+// corrected frame, so ct comes back from msk144spd as the decoder left it),
+// softbits 144 values out, msgreceived 37 characters (blank
 // padded, as Fortran's character*37) out, nsuccess out (> 0: decoded). The
 // short-ping detector hands each frame it cuts to this.
-using DecodeSink = std::function<void(const cfloat* c, float* softbits, char* msgreceived, int& nsuccess)>;
+using DecodeSink = std::function<void(cfloat* c, float* softbits, char* msgreceived, int& nsuccess)>;
 
 // msk144sync(cdat, nframes, ntol, delf, navmask, npeaks, fc, fest, npklocs,
 // nsuccess, xmax, c): the Fortran's argument list. cdat is 864*nframes
 // points, navmask nframes entries, npklocs npeaks entries (1-based positions
-// in 1..864, as the Fortran gives them), c 864 points. Not threaded: the
-// reference's jt9 links the library without OpenMP, and with several threads
-// the merge of the threads' best gives what one thread gives.
+// in 1..864, as the Fortran gives them), c 864 points. Not threaded, though the
+// reference's jt9 links the OpenMP library (libwsjt_fort_omp.a, libgomp), where
+// msk144sync runs nthreads = min(4, OMP_GET_MAX_THREADS()) threads, each
+// with a slice of the trial frequencies, merged by a strict >. With a full team
+// the serial search gives the same bits (the piece check runs the oracle against
+// the OpenMP library at four threads). Two divergences remain, neither seen in
+// the decoder's output: (a) with nfreqs < nthreads and every trial's peak zero
+// or not finite, fest differs (the reference's last thread has the slice
+// holding if2 only), but nsuccess is 0 and the callers cycle; (b) with a short
+// team (OMP_THREAD_LIMIT below the request, or omp_set_dynamic(.true.), which
+// decoder.f90 sets after the first file's MSK pass) the reference leaves
+// slices unsearched, so its answer depends on the load in multi-file runs.
 void msk144sync(const cfloat* cdat, int nframes, int ntol, float delf, const int* navmask, int npeaks, float fc, float& fest,
                 int* npklocs, int& nsuccess, float& xmax, cfloat* c);
 

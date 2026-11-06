@@ -44,9 +44,11 @@ inline int nint_d(double x) { return static_cast<int>(lround(x)); }
 inline float max_gf(float a, float b) { return b > a ? b : a; }
 
 // ---- msk144sync's constants: pp (the half-sine pulse) and cb (the sync word), made at the first call.
-// The reference's compiler vectorised the loop for pp(i)=sin((i-1)*pi/12.0), pi=4.0*atan(1.0) a default
-// real: libmvec's _ZGVbN4v_sinf for i = 2..9, the first (sin 0) and the last three folded to the correctly
-// rounded constants.
+// (msk144sync.f90:30-50.) The reference's compiler vectorised the loop for pp(i)=sin((i-1)*pi/12.0),
+// pi=4.0*atan(1.0) a default real: libmvec's _ZGVbN4v_sinf for i = 2..9, the first (sin 0) and the last
+// three folded to the correctly rounded constants. Provenance of the folded ones: gfortran 13.3 in the
+// wsjtx-oracle image, read from its printout (the oracle's P and B lines); re-derive them as the
+// correctly rounded sinf of the float angle of i = 10, 11, 12. The oracle's P/B/R lines check them.
 struct SyncConsts {
     float pp[12];
     cfloat cb[42];
@@ -75,9 +77,11 @@ struct SyncConsts {
     }
 };
 
-// ---- msk144spd's constants: rcw, the raised-cosine edge window.
+// ---- msk144spd's constants: rcw, the raised-cosine edge window (msk144spd.f90:62-80).
 // angle=(i-1)*pi/12.0 with pi a real*8, rcw(i)=(1-cos(angle))/2: the same vectorisation (libmvec's
-// _ZGVbN4v_cosf for i = 2..9; i = 1 is cos 0, i = 10..12 folded).
+// _ZGVbN4v_cosf for i = 2..9; i = 1 is cos 0, i = 10..12 folded: as for pp, gfortran 13.3's constants,
+// re-derived as float (1 - c)/2 with c the correctly rounded cosf of the float angle; the oracle's R line
+// checks them).
 struct SpdConsts {
     float rcw[12];
     SpdConsts() {
@@ -95,7 +99,7 @@ struct SpdConsts {
 
 }  // namespace
 
-// ---- indexx.f90 (Numerical Recipes' quicksort of indices), the gotos kept
+// ---- indexx.f90:1-91 (Numerical Recipes' quicksort of indices), the gotos kept
 void indexx(const float* arr, int n, int* indx) {
     constexpr int M = 7, NSTACK = 50;
     int istack[NSTACK + 1];
@@ -231,7 +235,7 @@ int maxloc_masked_f(const float* a, int lo, int hi) {
     return pos;
 }
 
-// ---- msk_spectrum.f90
+// ---- msk_spectrum.f90: msk_clip_spectrum_window lines 12-36, msk_peak_offset lines 38-57
 void msk_clip_spectrum_window(int nfft, double requested_lo, double requested_hi, int& lo, int& hi, bool& usable) {
     lo = 1;
     hi = 0;
@@ -290,7 +294,7 @@ float msk_peak_offset(const cfloat* spectrum, int n, int peak_bin) {
     return offset;
 }
 
-// ---- msk144sync.f90
+// ---- msk144sync.f90:1-101
 void msk144sync(const cfloat* cdat, int nframes, int ntol, float delf, const int* navmask, int npeaks, float fc, float& fest,
                 int* npklocs, int& nsuccess, float& xmax, cfloat* c) {
     static const SyncConsts consts;
@@ -327,7 +331,7 @@ void msk144sync(const cfloat* cdat, int nframes, int ntol, float delf, const int
     if (xmax >= 1.3f) nsuccess = 1;
 }
 
-// ---- msk144spd.f90
+// ---- msk144spd.f90:1-208 (the calls to msk144decodeframe at lines 194 go to `decode`)
 void msk144spd(const cfloat* cbig, int n, int ntol, int& nsuccess, char* msgreceived, float fc, float& fret, float& tret,
                int& navg, cfloat* ct, float* softbits, const DecodeSink& decode) {
     constexpr int MAXSTEPS = 100, NFFT = NSPM, MAXCAND = 5, NPATTERNS = 6;

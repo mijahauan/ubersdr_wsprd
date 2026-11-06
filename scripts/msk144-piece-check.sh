@@ -146,6 +146,19 @@ fi
 oracle=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_full" "msk144-$piece-oracle")
 "$repo/scripts/msk144-oracle.sh" exec "$oracle" "$repo" > "$work/oracle.out"
 
+# sync: the release jt9 links the OpenMP variant of the library (msk144sync then runs
+# min(4, OMP_GET_MAX_THREADS()) threads, each with a slice of the trial frequencies, merged by a strict >).
+# The port is serial. The same oracle, linked against libwsjt_fort_omp.a with -fopenmp and run with four
+# threads (a full team: OMP_DYNAMIC=false, OMP_THREAD_LIMIT unset), must print the same.
+if [[ $piece == sync ]]; then
+    oracle_omp=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_full" "msk144-$piece-oracle-omp" omp)
+    "$repo/scripts/msk144-oracle.sh" exec env -u OMP_THREAD_LIMIT OMP_NUM_THREADS=4 OMP_DYNAMIC=false \
+        "$oracle_omp" "$repo" > "$work/oracle-omp.out"
+    cmp -s "$work/oracle.out" "$work/oracle-omp.out" ||
+        { echo "msk144-piece-check: sync: the OpenMP library at 4 threads DIFFERS: diff $work/oracle.out $work/oracle-omp.out" >&2
+          diff "$work/oracle.out" "$work/oracle-omp.out" | head -10 >&2 || true; exit 1; }
+fi
+
 # the driver (no output file if the port is missing: the link fails)
 rm -f "$work/driver"
 "$cxx" "${flags[@]}" "$driver_src" "${srcs[@]}" -lfftw3f -lm -lpthread -o "$work/driver"
@@ -157,7 +170,7 @@ if cmp -s "$work/oracle.out" "$work/driver.out"; then
         exit 0
     fi
     if [[ $piece == sync ]]; then
-        echo "msk144-piece-check: sync: identical ($(wc -l < "$work/oracle.out") lines: $(grep -c '^SYN' "$work/oracle.out") msk144sync and $(grep -c '^SPD' "$work/oracle.out") msk144spd runs; $(awk '$1 == "X" && $3 == 1 && $4 !~ /^\|/' "$work/oracle.out" | wc -l) msk144sync successes; $(grep -c '^F ' "$work/oracle.out") frame decodes replayed ($(grep -c '^F .* [1-9][0-9]* |' "$work/oracle.out") decoded); $(grep -c '^T' "$work/oracle.out") spd steps, $(grep -c '^[LJKW] ' "$work/oracle.out") piece cases)"
+        echo "msk144-piece-check: sync: identical, and the OpenMP library at 4 threads the same ($(wc -l < "$work/oracle.out") lines: $(grep -c '^SYN' "$work/oracle.out") msk144sync and $(grep -c '^SPD' "$work/oracle.out") msk144spd runs; $(awk '$1 == "X" && $3 == 1 && $4 !~ /^\|/' "$work/oracle.out" | wc -l) msk144sync successes; $(grep -c '^F ' "$work/oracle.out") frame decodes replayed ($(grep -c '^F .* [1-9][0-9]* |' "$work/oracle.out") decoded); $(grep -c '^T' "$work/oracle.out") spd steps, $(grep -c '^[LJKW] ' "$work/oracle.out") piece cases)"
         exit 0
     fi
     echo "msk144-piece-check: $piece: identical ($(wc -l < "$work/oracle.out") lines, $(grep -c '^R' "$work/oracle.out") decodes run, $(grep -c '^I' "$work/oracle.out") trace lines, $(grep -c '^P' "$work/oracle.out") platanh and $(grep -c '^T' "$work/oracle.out") tanh values, $(awk '$1 == "R" && $4 >= 0' "$work/oracle.out" | wc -l) decoded, $(grep -c '^C' "$work/oracle.out") CRC checks)"

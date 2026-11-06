@@ -304,7 +304,7 @@ int main() {
             int nframe = 0;
             const std::vector<FRec>& recs = frecs[k];
             const std::vector<float>& us = usoft[k];
-            const msk144::DecodeSink sink = [&](const cfloat* c, float* softbits, char* msgreceived, int& ns) {
+            const msk144::DecodeSink sink = [&](cfloat* c, float* softbits, char* msgreceived, int& ns) {
                 std::vector<float> v(2 * NSPM);
                 for (int j = 0; j < NSPM; ++j) {
                     v[2 * j] = c[j].real();

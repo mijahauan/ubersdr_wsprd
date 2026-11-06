@@ -9,7 +9,7 @@
 #   scripts/msk144-oracle.sh corpus        inputs, the cases run, fixtures stored
 #   scripts/msk144-oracle.sh all           both
 #   scripts/msk144-oracle.sh --print-env   the paths a later step sources
-#   scripts/msk144-oracle.sh fortran FILE.f90 [NAME]
+#   scripts/msk144-oracle.sh fortran FILE.f90 [NAME [omp]]
 #                                          compile a Fortran oracle against the
 #                                          reference's libwsjt_fort.a; print the
 #                                          binary's path
@@ -60,12 +60,15 @@ quadmath=; [[ $(gcc -print-file-name=libquadmath.so) == /* ]] && quadmath=-lquad
 # fcompile SRC.f90 OUT: a Fortran main against the release build's library,
 # with the flags CMake gives msk144sim, as WSJT-X links its own simulators.
 fcompile() {
-    local f=$1 out=$2 o
+    local f=$1 out=$2 variant=${3:-} o
+    local lib=libwsjt_fort.a mods=fortran_modules omp=()
+    # variant omp: against the OpenMP variant of the library, as the release jt9 links it
+    if [[ $variant == omp ]]; then lib=libwsjt_fort_omp.a mods=fortran_modules_omp omp=(-fopenmp); fi
     o=$(mktemp -d "$work/fc.XXXXXX")
     read -r -a fflags <<< "$(sed -n 's/^Fortran_FLAGS = //p' "$b/CMakeFiles/msk144sim.dir/flags.make")"
-    (cd "$b" && gfortran "${fflags[@]}" -Wno-intrinsic-shadow -I fortran_modules -I "$src/lib" -J "$o" \
+    (cd "$b" && gfortran "${fflags[@]}" "${omp[@]}" -Wno-intrinsic-shadow -I $mods -I "$src/lib" -J "$o" \
             -c "$f" -o "$o/main.o" &&
-        c++ -fopenmp -pthread "$o/main.o" -o "$out" libwsjt_fort.a libwsjt_cxx.a -lm \
+        c++ -fopenmp -pthread "$o/main.o" -o "$out" $lib libwsjt_cxx.a -lm \
             /usr/lib/$(gcc -dumpmachine)/libboost_{log_setup,log,chrono,filesystem,regex,thread,atomic}.so.1.83.0 \
             -lfftw3f_threads -lfftw3f -lgfortran $quadmath)
     rm -rf "$o"
@@ -286,7 +289,7 @@ fortran)
     f=$1; name=${2:-$(basename "$f" .f90)}
     [[ $f == /* ]] || f=$PWD/$f
     mkdir -p "$work/oracles"
-    fcompile "$f" "$work/oracles/$name"
+    fcompile "$f" "$work/oracles/$name" "${3:-}"
     echo "$work/oracles/$name"
     ;;
 exec)

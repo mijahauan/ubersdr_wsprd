@@ -81,6 +81,8 @@ program msk144_sync_oracle
    common /patience/ npatience, nthreads
    real :: nanv, infv
    integer :: ihot(4), iquiet(4), idec(3,4), ndecf(4), s, mask8(8)
+   real :: sc, fcx
+   integer :: s1x
    integer :: patt(8,4)
    data patt/1,1,1,1,0,0,0,0, 0,0,1,1,1,1,0,0, 1,1,1,1,1,0,0,0, 1,1,1,1,1,1,1,0/
 
@@ -107,7 +109,7 @@ program msk144_sync_oracle
    nslice = 0
    do ifile = 1, 4
       open(10, file=trim(path(ifile)), access='stream', form='unformatted', status='old', iostat=ios)
-      if (ios /= 0) stop 'oracle: cannot open a WAV'
+      if (ios /= 0) error stop 'oracle: cannot open a WAV'
       inquire(10, size=nsamp)
       nsamp = (nsamp - 44)/2
       allocate(wav(nsamp))
@@ -199,6 +201,12 @@ program msk144_sync_oracle
    call run_sync(k, s, 0, 0, 8, 2.0, (/0,0,0,0,0,0,0,0/), 2, 1500.0, 0, 0, 1.0)     ! no frames
    call run_sync(k, s, 0, 3, 8, 2.0, (/1,1,1,0,0,0,0,0/), 2, 1500.0, 1500, 0, 1.0)  ! a NaN point
    call run_sync(k, s, 0, 3, 8, 2.0, (/1,1,1,0,0,0,0,0/), 2, 1500.0, 0, 7, 1.0)     ! an Inf point
+   ! xmax exactly 1.3 (0x3FA66666), where nsuccess turns on (xmax >= 1.3): the scale found by stepping the
+   ! float scale (the correlation is linear in it) with the library's msk144sync, then the scales either side
+   call find_scale(s1x, fcx, sc)
+   call run_sync(k, s1x, 0, 3, 8, 2.0, (/1,1,1,0,0,0,0,0/), 2, fcx, 0, 0, nearest(sc, -1.0))
+   call run_sync(k, s1x, 0, 3, 8, 2.0, (/1,1,1,0,0,0,0,0/), 2, fcx, 0, 0, sc)
+   call run_sync(k, s1x, 0, 3, 8, 2.0, (/1,1,1,0,0,0,0,0/), 2, fcx, 0, 0, nearest(sc, 1.0))
    call run_sync(k, s, 0, 3, 8, 2.0, (/1,1,1,0,0,0,0,0/), 2, 1500.0, 0, -7, 1.0)    ! a point of 1e20
    call run_sync(k, s, 0, 3, 8, 2.0, (/1,1,1,0,0,0,0,0/), 2, 1500.0, 0, 0, 1.0e20)  ! overflow
    call run_sync(k, s, 0, 3, 8, 2.0, (/1,1,1,0,0,0,0,0/), 2, 1500.0, 0, 0, 0.0)     ! scaled to zero
@@ -248,6 +256,8 @@ program msk144_sync_oracle
    call run_spd(k, s, 6912, 200, 1500.0, 0, -3000, 1.0)   ! one point of 1e20: its square is Inf, spread by the FFT
    call run_spd(k, s, 6912, 200, 1500.0, 0, -100, 1.0)
    call run_spd(k, s, 6912, 200, 1500.0, 0, -6000, 1.0)
+   call run_spd(k, s, 6912, 200, 1500.0, 0, -2800, 1.0)   ! in the tail edge (the last 12 points) of step 10's window
+   call run_spd(k, s, 6912, 200, 1500.0, 0, -860, 1.0)    ! and of step 1's
    call run_spd(k, s, 6912, 200, 1500.0, 0, -2161, 1.0)
    call run_spd(k, s, 6912, 200, 1500.0, 0, -2162, 1.0)
    call run_spd(k, s, 6912, 200, 1500.0, 0, -1297, 1.0)
@@ -313,6 +323,41 @@ contains
       call msk144spd(c, n, ntol, ns, mq, fc, fq, tq, navgq, ctq, sbq)
    end subroutine quiet_spd
 
+   ! a slice, a carrier and a float scale at which msk144sync's xmax (3 frames from the slice's start, mask 1 1 1,
+   ! ntol 8, delf 2) is exactly 1.3: xmax steps by more than one bit per step of the scale, so some of the
+   ! variants (slice, carrier) never land on it; the first that does is returned
+   subroutine find_scale(ss, fcv, scl)
+      integer :: ss, i, j, jj, nk(10), nsu, mm(8), s1, ifc
+      real :: scl, xm, fe, g, fcv
+      complex :: cd(NSPM*8), c0(NSPM)
+      mm = (/1,1,1,0,0,0,0,0/)
+      do s1 = 1, nslice
+         do ifc = 0, 3
+            fcv = 1500.0 + 0.37*real(ifc)
+            call make_input(s1, 0, NSPM*3, 0, 0, 1.0, cd)
+            call msk144sync(cd, 3, 8, 2.0, mm, 2, fcv, fe, nk, nsu, xm, c0)
+            if (xm <= 0.0) cycle
+            scl = 1.3/xm
+            do i = 0, 60
+               do j = -1, 1, 2
+                  g = scl
+                  do jj = 1, i
+                     g = nearest(g, real(j))
+                  enddo
+                  call make_input(s1, 0, NSPM*3, 0, 0, g, cd)
+                  call msk144sync(cd, 3, 8, 2.0, mm, 2, fcv, fe, nk, nsu, xm, c0)
+                  if (transfer(xm, 0) == int(z'3FA66666')) then
+                     scl = g
+                     ss = s1
+                     return
+                  endif
+               enddo
+            enddo
+         enddo
+      enddo
+      error stop 'oracle: no scale gives xmax 1.3'
+   end subroutine find_scale
+
    subroutine navpat(ip, m)
       integer :: ip, m(8)
       integer :: np(3, 6)
@@ -363,7 +408,7 @@ contains
       call msk144sync(cdat, nf, ntol, delf, m1, npeaks, fc, fest2, nk2, nsuc2, xmax2, c2)
       if (nsuc1 /= nsuc2 .or. transfer(fest1, 0) /= transfer(fest2, 0) .or. transfer(xmax1, 0) /= transfer(xmax2, 0) &
           .or. any(nk1(1:npeaks) /= nk2(1:npeaks)) .or. &
-          any(transfer(c1, (/0/)) /= transfer(c2, (/0/)))) stop 'oracle: msk144sync_trace differs from msk144sync'
+          any(transfer(c1, (/0/)) /= transfer(c2, (/0/)))) error stop 'oracle: msk144sync_trace differs from msk144sync'
       write(*, '(a,1x,i0,1x,i0,2(1x,z8.8),10(1x,i0))') 'X', kk, nsuc1, transfer(fest1, 0), transfer(xmax1, 0), &
          nk1(1:npeaks)
    end subroutine run_sync
@@ -393,10 +438,10 @@ contains
       call msk144spd(cbig, n, ntol, ns2_, m2, fc, fr2, tr2, na2, ct2, sb2)
       if (ns1_ /= ns2_ .or. m1 /= m2 .or. transfer(fr1, 0) /= transfer(fr2, 0) .or. transfer(tr1, 0) /= transfer(tr2, 0) &
           .or. na1 /= na2 .or. any(transfer(sb1, (/0/)) /= transfer(sb2, (/0/)))) &
-         stop 'oracle: msk144spd_trace differs from msk144spd'
+         error stop 'oracle: msk144spd_trace differs from msk144spd'
       ! ct: the library's is changed by the frame decoder (in place), the copy's is not: compared when none ran
       if (ntr == 0 .and. any(transfer(ct1, (/0/)) /= transfer(ct2, (/0/)))) &
-         stop 'oracle: msk144spd_trace differs from msk144spd (ct)'
+         error stop 'oracle: msk144spd_trace differs from msk144spd (ct)'
       write(*, '(a,1x,i0,1x,i0,a,a,a,2(1x,z8.8),1x,i0)') 'X', kk, ns1_, ' |', m1, '|', transfer(fr1, 0), transfer(tr1, 0), na1
       call prr('U', kk, sb1, 144)
       call prc('V', kk, ct1, NSPM)
@@ -525,7 +570,8 @@ contains
       integer :: kk, it, nb, j, pb
       complex :: sp(40)
       integer*8 :: seed
-      real :: eps
+      real :: eps, nzero
+      nzero = transfer(int(z'80000000'), 0.0)
       ! a smooth peak, and the awkward ones
       sp = (0.0, 0.0)
       sp(1:5) = (/(1.0, 0.5), (3.0, 1.0), (8.0, -2.0), (2.0, 0.5), (1.0, 0.0)/)
@@ -577,6 +623,18 @@ contains
       call pk(kk, 5, 2, sp)
       sp(1:5) = (/(1.0, 0.0), (-2.0, 0.0), (1.0, 0.0), (0.0, 0.0), (0.0, 0.0)/)
       call pk(kk, 5, 2, sp)      ! a trough
+      ! |c| = |d| (a tie in the division's branch), c = -d and c = d
+      sp(1:5) = (/cmplx(0.75, 0.25), cmplx(1.0, -0.5), cmplx(0.25, -0.25), (0.0, 0.0), (0.0, 0.0)/)
+      call pk(kk, 5, 2, sp)
+      sp(1:5) = (/cmplx(0.5, 1.0), cmplx(1.0, 1.0), cmplx(0.5, 0.0), (0.0, 0.0), (0.0, 0.0)/)
+      call pk(kk, 5, 2, sp)
+      ! signed zeros in the curvature: s0 = (1, -0): 2.0*s0 as a complex product has imaginary part +0
+      sp(1:5) = (/cmplx(nzero, 0.0), cmplx(1.0, nzero), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)/)
+      call pk(kk, 5, 2, sp)
+      sp(1:5) = (/cmplx(nzero, nzero), cmplx(1.0, nzero), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)/)
+      call pk(kk, 5, 2, sp)
+      sp(1:5) = (/cmplx(0.0, nzero), cmplx(2.0, nzero), cmplx(nzero, 0.0), (0.0, 0.0), (0.0, 0.0)/)
+      call pk(kk, 5, 2, sp)
       seed = 4242_8
       do it = 1, 60
          nb = 5
