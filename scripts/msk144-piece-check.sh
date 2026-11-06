@@ -22,6 +22,18 @@
 # optional hook (bpdecode128_90_trace in src/msk144_ldpc.h) prints the same.
 # The sed anchors are checked: the script stops if the reference moved.
 #
+# frontend also checks intermediate values: the oracle gets, appended, a copy
+# of the reference's lib/analytic.f90 (sed: renamed analytic_trace, plus two
+# calls, one before the filter's `if( beq )` and one before `c(1)=0.5*c(1)`,
+# that print the filter response h, the equalizer corr, and c after the forward
+# FFT and after the filter), and the port's hook (analytic_trace in
+# src/msk_frontend.h) prints the same. It also runs msk144_freq_search once
+# per trial frequency, for each trial's correlation peak. The driver links
+# FFTW (-lfftw3f).
+#
+# The oracle is compiled afresh on every run (scripts/msk144-oracle.sh fortran
+# does not cache by name), so an edit to a oracle's source always shows.
+#
 # Flags: the driver is built with what CMakeLists.txt gives jt9's MSK144
 # files: FT8_FP_OPTIONS (-ffp-contract=off, plus -mno-fma on GCC before 13
 # for x86-64), on top of CMake's Release -O3 and the -march=x86-64-v3
@@ -32,13 +44,14 @@
 #   MSK144_ORACLE_WORK=DIR   as scripts/msk144-oracle.sh (default
 #                            ~/.cache/msk144-oracle); needs its `build`
 #
-# Pieces: ldpc
+# Pieces: ldpc frontend
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 piece=${1:-}
 case $piece in
     ldpc) sources="src/msk144_ldpc.cpp src/ft8_ldpc.cpp src/wsprd_osd.cpp" ;;
+    frontend) sources="src/msk_frontend.cpp src/ft8_maths.cpp src/fft.cpp src/fft_wisdom.cpp" ;;
     *) sed -n '/^# Pieces:/p' "$0" | sed 's/^# //' >&2; exit 2 ;;
 esac
 oracle_src=$repo/scripts/msk144-$piece-oracle.f90
@@ -75,16 +88,33 @@ if [[ $piece == ldpc ]]; then
     cat "$oracle_src" "$work/trace-routine.f90" > "$oracle_full"
 fi
 
+if [[ $piece == frontend ]]; then
+    ref=${WSJTX:-$HOME/repos/wsjtx}/lib/analytic.f90
+    oracle_full=$work/msk144-frontend-oracle-traced.f90
+    sed -e 's/^subroutine analytic(/subroutine analytic_trace(/' \
+        -e 's/^end subroutine analytic$/end subroutine analytic_trace/' \
+        -e 's/^  if( beq ) then$/  call msk144_dump_hcf(h,corr,c,nfft)\n&/' \
+        -e 's/^  c(1)=0\.5\*c(1) .*$/  call msk144_dump_g(c,nfft)\n&/' \
+        "$ref" > "$work/trace-routine.f90"
+    [[ $(diff "$ref" "$work/trace-routine.f90" | grep -c '^>') == 4 ]] ||
+        { echo "msk144-piece-check: the sed instrumentation did not apply to $ref" >&2; exit 1; }
+    cat "$oracle_src" "$work/trace-routine.f90" > "$oracle_full"
+fi
+
 # the oracle
 oracle=$("$repo/scripts/msk144-oracle.sh" fortran "$oracle_full" "msk144-$piece-oracle")
-"$repo/scripts/msk144-oracle.sh" exec "$oracle" > "$work/oracle.out"
+"$repo/scripts/msk144-oracle.sh" exec "$oracle" "$repo" > "$work/oracle.out"
 
 # the driver (no output file if the port is missing: the link fails)
 rm -f "$work/driver"
-"$cxx" "${flags[@]}" "$driver_src" "${srcs[@]}" -o "$work/driver"
+"$cxx" "${flags[@]}" "$driver_src" "${srcs[@]}" -lfftw3f -lm -lpthread -o "$work/driver"
 "$work/driver" < "$work/oracle.out" > "$work/driver.out"
 
 if cmp -s "$work/oracle.out" "$work/driver.out"; then
+    if [[ $piece == frontend ]]; then
+        echo "msk144-piece-check: $piece: identical ($(wc -l < "$work/oracle.out") lines: $(grep -c '^A' "$work/oracle.out") analytic, $(grep -c '^T' "$work/oracle.out") tweak1, $(grep -c '^S' "$work/oracle.out") freq_search, $(grep -c '^Q' "$work/oracle.out") trial peaks)"
+        exit 0
+    fi
     echo "msk144-piece-check: $piece: identical ($(wc -l < "$work/oracle.out") lines, $(grep -c '^R' "$work/oracle.out") decodes run, $(grep -c '^I' "$work/oracle.out") trace lines, $(grep -c '^P' "$work/oracle.out") platanh and $(grep -c '^T' "$work/oracle.out") tanh values, $(awk '$1 == "R" && $4 >= 0' "$work/oracle.out" | wc -l) decoded, $(grep -c '^C' "$work/oracle.out") CRC checks)"
 else
     echo "msk144-piece-check: $piece: DIFFERS: diff $work/oracle.out $work/driver.out" >&2
