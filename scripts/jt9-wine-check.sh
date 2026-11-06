@@ -114,18 +114,24 @@ done < <(find "$repo/tests/data/fst4w/cases" -name args.txt | sort)
 # FT8, FT4 and FT2: run every case whose inputs are here, then compare.
 ft8=() nft4=0 nft2=0 nmsk=0
 usage_text=$(jt9 -h 2> /dev/null | tr -d '\r' || true)
-msk_ok=false msk_flags=false
+# Our port lists --spread (the WSJT-X reference does not). With it, every MSK144
+# case runs, and fails when the option is missing. Only JT9_WINE_MSK144=pending
+# (build.sh --check, until the port has MSK144) leaves them out, loudly.
+msk_ok=false msk_flags=false msk_left=0
 [[ $usage_text == *--msk144* ]] && msk_ok=true
 [[ $usage_text == *--msk-shmsg* && $usage_text == *--msk-swl* ]] && msk_flags=true
+if [[ $usage_text == *--spread* && ${JT9_WINE_MSK144:-} != pending ]]; then msk_ok=true msk_flags=true; fi
 while IFS= read -r a; do
     missing=
     d=$(dirname "$a")
     if [[ $d == */msk144/* ]]; then
-        $msk_ok || continue
-        if [[ $d == */jt9-shmsg || $d == */jt9-swl ]]; then $msk_flags || continue; fi
+        if ! $msk_ok || { [[ $d == */jt9-shmsg || $d == */jt9-swl ]] && ! $msk_flags; }; then msk_left=$((msk_left + 1)); continue; fi
     fi
     for t in $(cut -d' ' -f2- "$a"); do
         [[ $t == recordings/* && ! -f $repo/$t ]] && missing=$t
+        # @I/ inputs are made by scripts/jt9-compare.sh (odd WAVs), not kept
+        # in the repository: such cases cannot run here, in any mode, and
+        # are left out of the count
         [[ $t == @I/* ]] && continue 2
     done
     [[ -n ${JT9_WINE_ONLY:-} && ! ${d#"$repo/tests/data/"} =~ $JT9_WINE_ONLY ]] && continue
@@ -187,6 +193,10 @@ for d in "${ft8[@]}"; do
     else pass=$((pass + 1)); fi
 done
 
+echo "jt9-wine-check: MSK144: $nmsk cases ran, $msk_left left out (--msk144 in the usage: $msk_ok, the flags: $msk_flags${JT9_WINE_MSK144:+, JT9_WINE_MSK144=$JT9_WINE_MSK144})" >&2
+if [[ $usage_text == *--spread* && ${JT9_WINE_MSK144:-} != pending ]] && [[ -z ${JT9_WINE_ONLY:-} ]] && (( nmsk < 318 )); then
+    echo "jt9-wine-check: FAIL: only $nmsk of the 318 MSK144 cases ran" >&2; fail=$((fail + 1))
+fi
 label="jt9.exe under wine"; $native && label="$(basename "$exe")"
 acc_note=; (( accept )) && acc_note=", $accept as accepted for arm64 (tests/data/jt9-arm64-accepted.txt)"
 echo "$label: $pass cases as WSJT-X's jt9 ($((${#ft8[@]} - nft4 - nft2 - nmsk)) of them FT8, $nft4 FT4, $nft2 FT2, $nmsk MSK144)$acc_note, $fail differing, $skip without their inputs"

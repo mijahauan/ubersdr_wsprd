@@ -271,7 +271,9 @@ if $check && [ "${WSPRD_SKIP_COMPARE:-0}" != 1 ]; then
 fi
 if $check && [ "${JT9_SKIP_COMPARE:-0}" != 1 ]; then
     say "checking jt9 against WSJT-X's jt9's stored outputs"
-    "$root/scripts/jt9-wine-check.sh" "$build/jt9" "$build/stored-jt9"
+    # MSK144 is pending: our jt9 has no --msk144 yet, so its cases are left out
+    # (named loudly). Remove JT9_WINE_MSK144=pending when the port lands.
+    JT9_WINE_MSK144=pending "$root/scripts/jt9-wine-check.sh" "$build/jt9" "$build/stored-jt9"
 fi
 if $check && [ "${WSPRD_SKIP_COMPARE:-0}" != 1 ] && [ "${JT9_SKIP_COMPARE:-0}" != 1 ]; then
     say "checking wsprd and jt9 on 32-bit float input against the same samples as 16-bit"

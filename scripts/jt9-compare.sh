@@ -502,7 +502,11 @@ compare() {  # spec -> results/<name>
         cmp -s <(sed "s|$repo/||g" "$n/stdout") "$d/stdout.txt" ||
             { bad=1; report+="stdout:"$'\n'$(diff "$d/stdout.txt" <(sed "s|$repo/||g" "$n/stdout") | head -20)$'\n'; }
         cmp -s "$n/status" "$d/status.txt" || { bad=1; report+="status: jt9 $(cat "$d/status.txt"), jt9 $(cat "$n/status")"$'\n'; }
-        [[ -s $n/stderr ]] && { bad=1; report+="stderr:"$'\n'$(head -5 "$n/stderr")$'\n'; }
+        if [[ -f $d/stderr.txt ]]; then
+            cmp -s <(sed "s|$repo/||g" "$n/stderr") "$d/stderr.txt" || { bad=1; report+="stderr:"$'\n'$(diff "$d/stderr.txt" "$n/stderr" | head -10)$'\n'; }
+        else
+            [[ -s $n/stderr ]] && { bad=1; report+="stderr:"$'\n'$(head -5 "$n/stderr")$'\n'; }
+        fi
         for f in $( (cd "$n/cwd" && find . -type f; [[ -f $d/decoded.txt ]] && echo ./decoded.txt) | sort -u); do
             cmp -s "$n/cwd/$f" "$d/$f" 2> /dev/null || { bad=1; report+="$f:"$'\n'$(diff "$d/$f" "$n/cwd/$f" 2>&1 | head -10)$'\n'; }
         done
@@ -551,6 +555,10 @@ fi | grep -q -- '--ft2' && stock_ft2=1
 
 # What NEW's usage lists: --spread (ours; the reference has none), and
 # MSK144's two switches.
+# new_spread marks NEW as our port (it lists --spread; the WSJT-X reference
+# does not). With our port under test nothing of MSK144 is skipped: a missing
+# --msk144, --msk-shmsg or --msk-swl makes those cases run and FAIL. Only the
+# reference as NEW (its own cases against itself) skips shmsg and swl.
 new_spread=0 new_shmsg=0
 new_usage=$("$new" -h 2> /dev/null || true)
 [[ $new_usage == *--spread* ]] && new_spread=1
@@ -559,7 +567,7 @@ selected=()
 for spec in "${cases[@]}"; do
     name=${spec%%|*}
     [[ -n $only && ! $name =~ $only ]] && continue
-    if [[ $name == msk144-*/shmsg || $name == msk144-*/swl ]] && (( ! new_shmsg )); then
+    if [[ $name == msk144-*/shmsg || $name == msk144-*/swl ]] && (( ! new_shmsg && ! new_spread )); then
         echo "SKIP ${name} (NEW has no --msk-shmsg and --msk-swl)" > "$work/results/${name//\//:}"; continue
     fi
     if [[ $name == ft2-* ]] && (( ! stock_ft2 )); then
@@ -580,6 +588,12 @@ for spec in "${cases[@]}"; do
     if [[ -n $skip ]]; then echo "SKIP ${name} ($skip missing)" > "$work/results/${name//\//:}"; continue; fi
     selected+=("$spec")
 done
+if (( ! new_spread )); then
+    for spec in "${selected[@]}"; do
+        [[ $spec == msk144-* ]] && continue
+        echo "jt9-compare: WARNING: NEW lists no --spread, so its non-MSK144 cases run without --spread exact" >&2; break
+    done
+fi
 running=0
 for spec in "${selected[@]}"; do
     for side in new stock; do
@@ -598,4 +612,17 @@ for r in "$work"/results/*; do
     if grep -q '^FAIL' "$r"; then cat "$r"; fails=1; fi
 done
 grep -h '^SKIP' "$work"/results/* 2>/dev/null
+# Our port must run every MSK144 case there is: no skips, none missing.
+if (( new_spread )); then
+    nmsk=$(grep -lE '^(PASS|FAIL)' "$work"/results/msk144-* 2>/dev/null | wc -l)
+    want=0
+    for spec in "${cases[@]}"; do
+        [[ ${spec%%|*} == msk144-* && ( -z $only || ${spec%%|*} =~ $only ) ]] && want=$((want + 1))
+    done
+    floor=338; [[ -n $only ]] && floor=0
+    echo "jt9-compare: MSK144: $nmsk of $want cases ran (at least $floor expected)" >&2
+    if (( nmsk < want || nmsk < floor )); then
+        echo "jt9-compare: FAIL: MSK144 cases did not all run" >&2; fails=1
+    fi
+fi
 exit $fails
