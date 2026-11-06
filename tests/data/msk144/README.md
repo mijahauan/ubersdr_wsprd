@@ -107,6 +107,20 @@ like the others. The `real-uacnj-*` inputs are in `recordings/msk144-uacnj/`,
 12 kHz s16 mono, each beside the JSON sidecar meteor-scatter wrote (its decodes,
 the frontend status). Station data of this kind is public.
 
+## The float cases (ours: no reference)
+
+WSJT-X's `jt9` refuses a float WAV for MSK144, so these cases have no
+reference output. Their stored files come from our port (scripts/msk144-float-inputs.py
+makes the two inputs in `recordings/msk144-float/` from `181211_120500`), and
+`jt9-compare.sh` and `jt9-wine-check.sh` check them against those files alone.
+Run `scripts/float-input-check.sh` for the other direction: every 16-bit case run
+again on its float copy must leave the same files.
+
+| case          | variants | what it shows |
+|---------------|----------|---------------|
+| `float-nan`   | `ms`, `swl` | a float file with NaN (twice, 50 and 1000 samples), +inf and -inf written over it, away from the decode. The port exits 0 at the normal speed, prints the decode at 8.7 s and `<DecodeFinished>`. A block with a non-finite sample counts as silent |
+| `float-level` | `ms` | the same samples times 2^-20 (an rms far below one 16-bit count). It decodes the same line as `sample-181211_120500`. It leaves no `decoded.txt`: that file's rms test (`decoder.f90`) runs on the same scaled values, as the brief says, and finds a quiet file |
+
 ## Inputs
 
 **WSJT-X's samples.** `181211_120500.wav` and `181211_120800.wav` come from
@@ -153,7 +167,7 @@ sample, not the hour the design (section 7) asks for.
 
 ## What the reference does here
 
-- 97 cases, 395 runs: 338 from the `corpus` step (66 cases), 29 from `focus` and 28 from `extra`.
+- 97 cases, 395 runs (the float cases, ours, add 2 cases and 3 runs, 398 in all): 338 from the `corpus` step (66 cases), 29 from `focus` and 28 from `extra`.
   `release` and `o2` agree on all 268 runs of the plain variants.
 - On the SNR sweep, depth 1 decodes down to -2 dB and depth 3 down to -4 dB. At -6 dB and below nothing decodes.
 - `-F 200` reaches all four +-200 Hz offsets at depth 3; at depth 1 three of the four fail. `defaults` (`-F 20`) loses every offset but 0.

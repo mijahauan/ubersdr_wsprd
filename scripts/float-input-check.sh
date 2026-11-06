@@ -8,7 +8,10 @@
 # each of its option sets below, and jt9 --fst4w's stdout, decoded.txt,
 # fst4_decodes.dat and fst4w_calls.txt: every file but wspr_timer.out, whose
 # CPU times differ from run to run. Each run starts from a fresh data dir that
-# is also the cwd.
+# is also the cwd. It also runs jt9 --msk144 so, under every command line of
+# tests/data/msk144/cases (--msk-shmsg and --msk-swl among them) whose input is
+# one 16-bit mono recording of recordings/msk144-*: jt9's stdout, decoded.txt
+# and every other file but timer.out.
 #
 #   scripts/float-input-check.sh WSPRD JT9 [WORK]
 #
@@ -67,5 +70,32 @@ for wav in "$repo"/recordings/40m-wspr-20261010-1914/*.wav "$repo"/recordings/ws
     done
     if same "jt9 --fst4w ${wav#"$repo"/}" "$wav" "$jt9" -p 120 --fst4w -f 1500 -F 100 -d 3; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
 done
+# MSK144: each distinct (recording, options) of the corpus's jt9 cases. An
+# args.txt holds `jt9 OPTIONS... FILE`; the run adds -a . itself.
+declare -A seen_msk=()
+mskn=0
+while IFS= read -r a; do
+    read -r -a toks < "$a"
+    wav= opts=() nwav=0 skip=0
+    for ((i = 1; i < ${#toks[@]}; i++)); do
+        t=${toks[i]}
+        case $t in
+            -a) i=$((i + 1)) ;;                            # -a DIR: the run's own
+            recordings/msk144-float/*) skip=1 ;;           # already float: the float-* cases
+            recordings/msk144-*.wav) wav=$repo/$t; nwav=$((nwav + 1)) ;;
+            *.wav|@I/*) skip=1 ;;
+            *) opts+=("$t") ;;
+        esac
+    done
+    (( skip == 0 && nwav == 1 )) || continue
+    [[ -f $(dirname "$a")/stdin.txt ]] && continue
+    key="$wav ${opts[*]}"
+    [[ -n ${seen_msk[$key]:-} ]] && continue
+    seen_msk[$key]=1
+    [[ -f $work/float/${wav##*/} ]] || to_float "$wav" "$work/float/${wav##*/}" || continue
+    mskn=$((mskn + 1))
+    if same "jt9 ${opts[*]} ${wav#"$repo"/}" "$wav" "$jt9" "${opts[@]}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+done < <(find "$repo/tests/data/msk144/cases" -path '*/jt9-*' -name args.txt | sort)
+echo "float input (MSK144): $mskn of those runs"
 echo "float input: $((pass + fail)) runs as on 16-bit input, $fail differing"
 (( fail == 0 ))
