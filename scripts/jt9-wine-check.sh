@@ -20,9 +20,9 @@
 # (the reference's outputs, scripts/msk144-oracle.sh), left out while the jt9
 # run does not list --msk144 in its usage, the shmsg and swl variants
 # (--msk-shmsg, --msk-swl) while it lists neither (a jt9 listing --spread
-# runs them all; JT9_WINE_MSK_FLAGS=pending, which build.sh no longer sets,
-# would leave the two variants out, loudly), and the cases on an odd
-# input (@I/..., made by scripts/jt9-compare.sh) always. FT8's, FT4's, FT2's and
+# runs them all, and fails when an option is missing), and the cases on an odd
+# input (@I/..., made by scripts/jt9-compare.sh) always, counted and
+# printed. FT8's, FT4's, FT2's and
 # MSK144's run several at once (JT9_WINE_JOBS,
 # default nproc), each in its own directory.
 # A native jt9 off x86-64 (aarch64: the Pi) may differ where
@@ -114,21 +114,17 @@ PY
 done < <(find "$repo/tests/data/fst4w/cases" -name args.txt | sort)
 
 # FT8, FT4 and FT2: run every case whose inputs are here, then compare.
-ft8=() nft4=0 nft2=0 nmsk=0
+ft8=() nft4=0 nft2=0 nmsk=0 ninput=0 ninput_msk=0
 usage_text=$(jt9 -h 2> /dev/null | tr -d '\r' || true)
 # Our port lists --spread (the WSJT-X reference does not). With it, every MSK144
-# case runs, the shmsg and swl variants (--msk-shmsg, --msk-swl, Task 7's) too,
-# and fails when an option is missing: nothing is left out. Only
-# JT9_WINE_MSK_FLAGS=pending (set by hand: build.sh had it until Task 7 gave
-# the port its two flags) leaves those two variants out, loudly. Without
-# --spread (the reference as the jt9 under test) the usage decides.
+# case runs, the shmsg and swl variants (--msk-shmsg, --msk-swl) too, and fails
+# when an option is missing: a binary that lists --spread must run all of
+# them. Without --spread (the reference as the jt9 under test) the usage
+# decides.
 msk_ok=false msk_flags=false msk_left=0
 [[ $usage_text == *--msk144* ]] && msk_ok=true
 [[ $usage_text == *--msk-shmsg* && $usage_text == *--msk-swl* ]] && msk_flags=true
-if [[ $usage_text == *--spread* ]]; then
-    msk_ok=true
-    [[ ${JT9_WINE_MSK_FLAGS:-} == pending ]] || msk_flags=true
-fi
+if [[ $usage_text == *--spread* ]]; then msk_ok=true msk_flags=true; fi
 while IFS= read -r a; do
     missing=
     d=$(dirname "$a")
@@ -138,9 +134,12 @@ while IFS= read -r a; do
     for t in $(cut -d' ' -f2- "$a"); do
         [[ $t == recordings/* && ! -f $repo/$t ]] && missing=$t
         # @I/ inputs are made by scripts/jt9-compare.sh (odd WAVs), not kept
-        # in the repository: such cases cannot run here, in any mode, and
-        # are left out of the count
-        [[ $t == @I/* ]] && continue 2
+        # in the repository: such cases cannot run here, in any mode. They are
+        # counted (ninput, and ninput_msk for MSK144's) and printed below
+        if [[ $t == @I/* ]]; then
+            ninput=$((ninput + 1)); [[ $d == */msk144/* ]] && ninput_msk=$((ninput_msk + 1))
+            continue 2
+        fi
     done
     [[ -n ${JT9_WINE_ONLY:-} && ! ${d#"$repo/tests/data/"} =~ $JT9_WINE_ONLY ]] && continue
     if [[ -n $missing ]]; then skip=$((skip + 1)); else ft8+=("$d"); [[ $d == */ft4/* ]] && nft4=$((nft4 + 1)); [[ $d == */ft2/* ]] && nft2=$((nft2 + 1)); [[ $d == */msk144/* ]] && nmsk=$((nmsk + 1)); fi
@@ -204,12 +203,17 @@ for d in "${ft8[@]}"; do
     else pass=$((pass + 1)); fi
 done
 
-echo "jt9-wine-check: MSK144: $nmsk cases ran, $msk_left left out (--msk144 in the usage: $msk_ok, the flags: $msk_flags${JT9_WINE_MSK_FLAGS:+, JT9_WINE_MSK_FLAGS=$JT9_WINE_MSK_FLAGS})" >&2
+echo "jt9-wine-check: MSK144: $nmsk cases ran, $msk_left left out for lack of an option (--msk144 in the usage: $msk_ok, the flags: $msk_flags)" >&2
+echo "jt9-wine-check: $ninput cases left out for their @I/ inputs, $ninput_msk of them MSK144's (scripts/jt9-compare.sh makes those WAVs; --deep-check runs them)" >&2
 if [[ $usage_text == *--spread* ]] && [[ -z ${JT9_WINE_ONLY:-} ]]; then
-    # left-out cases never count toward the floor; without the marker nothing may be left out
-    (( nmsk < 347 - msk_left )) && { echo "jt9-wine-check: FAIL: only $nmsk of the MSK144 cases ran" >&2; fail=$((fail + 1)); }
-    (( msk_left > 0 )) && [[ ${JT9_WINE_MSK_FLAGS:-} != pending ]] && { echo "jt9-wine-check: FAIL: $msk_left MSK144 cases left out" >&2; fail=$((fail + 1)); }
-    (( nmsk + msk_left < 347 )) && { echo "jt9-wine-check: FAIL: only $((nmsk + msk_left)) of the 347 MSK144 cases are here" >&2; fail=$((fail + 1)); }
+    # The floor: 347 MSK144 cases that run here, plus 20 for the real UACNJ slots (recordings/msk144-uacnj). The 347 is
+    # the 367 runs of the corpus as it stood at Task 8, less the 20 @I/ runs (odd-stereo, -rate11025, -bits8,
+    # -header and -tiny, 4 variants each). The final fix wave added odd-trunc and odd-stream (8 more @I/ runs,
+    # left out too: ninput_msk counts them) and the 20 real-uacnj runs. Raise it with the corpus. Nothing may
+    # be left out for lack of an option, and the @I/ runs left out may not number fewer than the 28 there are.
+    (( nmsk < 367 )) && { echo "jt9-wine-check: FAIL: only $nmsk of the 367 MSK144 cases ran" >&2; fail=$((fail + 1)); }
+    (( msk_left > 0 )) && { echo "jt9-wine-check: FAIL: $msk_left MSK144 cases left out" >&2; fail=$((fail + 1)); }
+    (( ninput_msk != 28 )) && { echo "jt9-wine-check: FAIL: $ninput_msk MSK144 cases left out for their @I/ inputs, 28 expected" >&2; fail=$((fail + 1)); }
 fi
 label="jt9.exe under wine"; $native && label="$(basename "$exe")"
 acc_note=; (( accept )) && acc_note=", $accept as accepted for arm64 (tests/data/jt9-arm64-accepted.txt)"

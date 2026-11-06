@@ -141,6 +141,18 @@ if os.path.exists(src):
     i = b.index(b"data")
     for n in (34559, 34560, 34561, 5184, 3456):
         wav(f"ft2cut{n}-261014_100000.wav", data=b[i + 8:i + 8 + 2 * n])
+# MSK144's: a WAV cut mid-data (the header says what the whole file would hold: a
+# recorder that stopped, or a file still being written) and one with the
+# streaming writers' placeholder size 0xFFFFFFFF, both from WSJT-X's 15 s sample.
+src = os.environ.get("JT9_COMPARE_REPO", ".") + "/recordings/msk144-samples/181211_120500.wav"
+if os.path.exists(src):
+    b = open(src, "rb").read()
+    d = b[b.index(b"data") + 8:]
+    fmt = struct.pack("<IHHIIHH", 16, 1, 1, 12000, 24000, 2, 16)
+    whole = b"RIFF" + struct.pack("<I", 36 + len(d)) + b"WAVEfmt " + fmt + b"data" + struct.pack("<I", len(d)) + d
+    open(f"{out}/trunc-261012_1200.wav", "wb").write(whole[:44 + 2 * 12000 * 9])
+    open(f"{out}/stream-261012_1200.wav", "wb").write(
+        b"RIFF" + struct.pack("<I", 0xFFFFFFFF) + b"WAVEfmt " + fmt + b"data" + struct.pack("<I", 0xFFFFFFFF) + d)
 open(f"{out}/notes.txt", "w").write("not a wav\n")
 EOF
 
@@ -628,10 +640,21 @@ if (( new_spread )); then
     for spec in "${cases[@]}"; do
         [[ ${spec%%|*} == msk144-* && ( -z $only || ${spec%%|*} =~ $only ) ]] && want=$((want + 1))
     done
-    floor=367; [[ -n $only ]] && floor=0
+    # The floor, 395: the 367 runs of the corpus at Task 8, plus the final fix wave's 28 (odd-trunc and
+    # odd-stream, 4 variants each; 20 real-uacnj-* runs). Raise it with the corpus. Under a filter the floor is 0:
+    # the match count below guards that case.
+    floor=395; [[ -n $only ]] && floor=0
     echo "jt9-compare: MSK144: $nmsk of $want cases ran (at least $floor expected)" >&2
     if (( nmsk < want || nmsk < floor )); then
         echo "jt9-compare: FAIL: MSK144 cases did not all run" >&2; fails=1
     fi
+fi
+# A filter that matches no case at all fails (a mistyped pattern, or a discovery that found nothing, as for
+# JT9_COMPARE_ONLY='^msk144' with the cases directory gone, would otherwise pass as "0 of 0"). Its match count is printed.
+if [[ -n $only ]]; then
+    nmatch=0
+    for spec in "${cases[@]}"; do [[ ${spec%%|*} =~ $only ]] && nmatch=$((nmatch + 1)); done
+    echo "jt9-compare: JT9_COMPARE_ONLY='$only' matched $nmatch cases" >&2
+    if (( nmatch == 0 )); then echo "jt9-compare: FAIL: JT9_COMPARE_ONLY='$only' matched no case" >&2; fails=1; fi
 fi
 exit $fails

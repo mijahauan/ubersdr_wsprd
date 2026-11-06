@@ -10,7 +10,11 @@
 #   scripts/msk144-oracle.sh focus         Task 6's cases (repeat-across-files, lastmode-*,
 #                                          ntol-wide, freq-edge, off-grid) and Task 7's swl-state and swl-pair, one
 #                                          reference process a file
-#   scripts/msk144-oracle.sh all           build, corpus and focus
+#   scripts/msk144-oracle.sh extra         the final review's cases: odd-trunc, odd-stream (a WAV cut
+#                                          mid-data; the streaming size 0xFFFFFFFF) and real-uacnj-* (20
+#                                          real slots, meteor-scatter's command line), one reference
+#                                          process a file
+#   scripts/msk144-oracle.sh all           build, corpus, focus and extra
 #   scripts/msk144-oracle.sh --print-env   the paths a later step sources
 #   scripts/msk144-oracle.sh fortran FILE.f90 [NAME [omp]]
 #                                          compile a Fortran oracle against the
@@ -79,6 +83,64 @@ fcompile() {
             /usr/lib/$(gcc -dumpmachine)/libboost_{log_setup,log,chrono,filesystem,regex,thread,atomic}.so.1.83.0 \
             -lfftw3f_threads -lfftw3f -lgfortran $quadmath)
     rm -rf "$o"
+}
+
+# ---- helpers shared by the focus and extra steps
+data=$repo/tests/data/msk144
+odd=$work/inputs
+
+# write_sums: SHA256SUMS, every input by its path from the repository's root
+write_sums() {
+    (cd "$repo" && find recordings/msk144-samples recordings/msk144-real recordings/msk144-uacnj recordings/msk144-sim \
+        -name '*.wav' | sort | xargs sha256sum > tests/data/msk144/inputs/SHA256SUMS)
+}
+
+# make_odd: the odd WAVs (stereo, 11025 Hz, truncated, ...) are the ones scripts/jt9-compare.sh makes: its
+# generator, taken out of the script, so the two cannot differ
+make_odd() {
+    rm -rf "$odd"; mkdir -p "$odd"
+    sed -n '/^JT9_COMPARE_REPO=\$repo python3 -I - /,/^EOF$/p' "$repo/scripts/jt9-compare.sh" | sed '1d;$d' |
+        JT9_COMPARE_REPO=/repo python3 -I - "$odd" > /dev/null
+}
+
+# one_run DIR ARGS...: the reference, once, in DIR; its stdout with the
+# repository's directory taken out of the paths. --msk-shmsg and --msk-swl are our options, not the
+# reference's: the patched build runs, with MSK144_SHMSG=1 and MSK144_SWL=1 (as the corpus step does)
+one_run() {
+    local dir=$1; shift
+    rm -rf "$dir"; mkdir -p "$dir"
+    local argv=() tok envs=() build=release
+    for tok in "$@"; do
+        case $tok in
+            recordings/*) argv+=("$repo/$tok") ;;
+            @I/*) argv+=("$odd/${tok#@I/}") ;;
+            --msk-shmsg) envs+=(MSK144_SHMSG=1); build=patched ;;
+            --msk-swl) envs+=(MSK144_SWL=1); build=patched ;;
+            *) argv+=("$tok") ;;
+        esac
+    done
+    set +e
+    (cd "$dir" && env "${envs[@]}" "$work/$build/jt9" "${argv[@]}" > stdout.txt 2> stderr.txt < /dev/null)
+    echo $? > "$dir/status.txt"
+    set -e
+    sed -i "s|$repo/||g; s|$odd/|@I/|g" "$dir/stdout.txt" "$dir/stderr.txt"
+    rm -f "$dir/timer.out" "$dir/jt9_wisdom.dat" "$dir/plotspec" "$dir/decdata"
+}
+# store DIR ARGS-LINE [STDIN-FILE]: the case directory from the run just made in $dir
+store() {
+    local out=$1 run=$2 args=$3
+    rm -rf "$out"; mkdir -p "$out"
+    echo "jt9 $args" > "$out/args.txt"
+    cp "$run/stdout.txt" "$run/status.txt" "$out/"
+    [[ -s $run/stderr.txt ]] && cp "$run/stderr.txt" "$out/"
+    [[ -f $run/decoded.txt ]] && cp "$run/decoded.txt" "$out/"
+    return 0
+}
+# single CASE VARIANT FILE ARGS...: one file, one process
+single() {
+    local case=$1 v=$2 file=$3; shift 3
+    one_run "$work/focus-run/$case-$v" "$@" "$file"
+    store "$data/cases/$case/jt9-$v" "$work/focus-run/$case-$v" "$* $file"
 }
 
 case $cmd in
@@ -155,15 +217,8 @@ corpus)
         echo "msk144-oracle: recordings/msk144-real/msk144_261023_105030.wav is not here; its cases are left out" >&2
     bash "$repo/scripts/msk144-sim-grid.sh" "$b/msk144-sim" "$b/msk144sim" "$repo/recordings/msk144-sim" "$samples"
 
-    # The odd WAVs (stereo, 11025 Hz, ...) are the ones scripts/jt9-compare.sh
-    # makes: its generator, taken out of the script, so the two cannot differ.
-    odd=$work/inputs; rm -rf "$odd"; mkdir -p "$odd"
-    sed -n '/^JT9_COMPARE_REPO=\$repo python3 -I - /,/^EOF$/p' "$repo/scripts/jt9-compare.sh" | sed '1d;$d' |
-        JT9_COMPARE_REPO=/repo python3 -I - "$odd" > /dev/null
-
-    # SHA256SUMS: every input, by its path from the repository's root
-    (cd "$repo" && find recordings/msk144-samples recordings/msk144-real recordings/msk144-sim -name '*.wav' | sort |
-        xargs sha256sum > tests/data/msk144/inputs/SHA256SUMS)
+    make_odd
+    write_sums
 
     # ---- the cases: name|T/R|input|extra
     # input is a path from the repository's root, or @I/ an odd WAV
@@ -319,44 +374,6 @@ focus)
     early=$(ls "$repo/$sim"/early-ping-*.wav | sed "s|^$repo/||")
     B="-a . -k -p 15 -f 1500 -F 200 -d 3"
 
-    # one_run DIR ARGS...: the reference, once, in DIR; its stdout with the
-    # repository's directory taken out of the paths. --msk-shmsg and --msk-swl are our options, not the
-    # reference's: the patched build runs, with MSK144_SHMSG=1 and MSK144_SWL=1 (as the corpus step does)
-    one_run() {
-        local dir=$1; shift
-        rm -rf "$dir"; mkdir -p "$dir"
-        local argv=() tok envs=() build=release
-        for tok in "$@"; do
-            case $tok in
-                recordings/*) argv+=("$repo/$tok") ;;
-                --msk-shmsg) envs+=(MSK144_SHMSG=1); build=patched ;;
-                --msk-swl) envs+=(MSK144_SWL=1); build=patched ;;
-                *) argv+=("$tok") ;;
-            esac
-        done
-        set +e
-        (cd "$dir" && env "${envs[@]}" "$work/$build/jt9" "${argv[@]}" > stdout.txt 2> stderr.txt < /dev/null)
-        echo $? > "$dir/status.txt"
-        set -e
-        sed -i "s|$repo/||g" "$dir/stdout.txt" "$dir/stderr.txt"
-        rm -f "$dir/timer.out" "$dir/jt9_wisdom.dat" "$dir/plotspec" "$dir/decdata"
-    }
-    # store DIR ARGS-LINE [STDIN-FILE]: the case directory from the run just made in $dir
-    store() {
-        local out=$1 run=$2 args=$3
-        rm -rf "$out"; mkdir -p "$out"
-        echo "jt9 $args" > "$out/args.txt"
-        cp "$run/stdout.txt" "$run/status.txt" "$out/"
-        [[ -s $run/stderr.txt ]] && cp "$run/stderr.txt" "$out/"
-        [[ -f $run/decoded.txt ]] && cp "$run/decoded.txt" "$out/"
-        return 0
-    }
-    # single CASE VARIANT FILE ARGS...: one file, one process
-    single() {
-        local case=$1 v=$2 file=$3; shift 3
-        one_run "$work/focus-run/$case-$v" "$@" "$file"
-        store "$data/cases/$case/jt9-$v" "$work/focus-run/$case-$v" "$* $file"
-    }
     # multi CASE VARIANT FILES...: one process a file, the outputs put end to end, as `jt9 B FILES` and
     # as `jt9 --feed B` print them
     multi() {
@@ -421,6 +438,35 @@ focus)
         single offgrid-sm04 d$d "$og4" -a . -k -p 15 -f 1500 -F 200 -d $d
     done
     echo "msk144-oracle: focus: $(ls -d "$data"/cases/{repeat-across-files,lastmode-Y,lastmode-8,ntol-wide,freq-edge,offgrid-sm06,offgrid-sm04,swl-state,swl-pair}/jt9-* | wc -l) runs stored" >&2
+    [[ $cmd == all ]] || exit 0
+    ;&
+
+# ---------------------------------------------------------------- extra
+# The final review's cases, stored beside the others, one reference process a file with OMP_DYNAMIC and
+# OMP_THREAD_LIMIT unset (as focus does; every case here is one file):
+#   odd-trunc, odd-stream  a WAV cut mid-data, and one with the streaming size 0xFFFFFFFF (@I/, made by
+#                          scripts/jt9-compare.sh's generator): the reference refuses both, 3.0.2 decoded
+#                          the samples present (tests/data/msk144/AB-3.0.2.md); variants d1, d3, defaults, ms
+#   real-uacnj-*           20 slots from UACNJ's meteor-scatter archive (recordings/msk144-uacnj, 12 kHz
+#                          s16 mono, 30 s, each with the JSON sidecar meteor-scatter wrote): variant ms,
+#                          the line meteor-scatter runs
+extra)
+    unset OMP_DYNAMIC OMP_THREAD_LIMIT
+    make_odd
+    write_sums
+    rm -rf "$data"/cases/{odd-trunc,odd-stream} "$data"/cases/real-uacnj-*
+    for f in trunc stream; do
+        # the corpus step's variants d1, d3, defaults and ms, at T/R 15 s
+        single "odd-$f" d1 "@I/$f-261012_1200.wav" -a . -k -p 15 -f 1500 -F 200 -d 1
+        single "odd-$f" d3 "@I/$f-261012_1200.wav" -a . -k -p 15 -f 1500 -F 200 -d 3
+        single "odd-$f" defaults "@I/$f-261012_1200.wav" -a . -k -p 15
+        single "odd-$f" ms "@I/$f-261012_1200.wav" -Y --msk144 -p 15 -f 1500 -F 200 -d 3 -a .
+    done
+    for w in "$repo"/recordings/msk144-uacnj/*.wav; do
+        n=$(basename "$w" .wav)
+        single "real-uacnj-$n" ms "recordings/msk144-uacnj/$n.wav" -Y --msk144 -p 15 -f 1500 -F 200 -d 3 -a .
+    done
+    echo "msk144-oracle: extra: $(ls -d "$data"/cases/{odd-trunc,odd-stream,real-uacnj-*}/jt9-* | wc -l) runs stored" >&2
     ;;
 
 # ---------------------------------------------------------------- fortran
@@ -460,8 +506,8 @@ EOF
 }
 if [[ ${1:-} == --print-env ]]; then print_env; exit 0; fi
 step=${1:-}
-case $step in build|corpus|focus|all|fortran|exec) shift ;;
-    *) sed -n '2,21p' "$0" | sed 's/^# \?//' >&2; exit 2 ;;
+case $step in build|corpus|focus|extra|all|fortran|exec) shift ;;
+    *) sed -n '2,25p' "$0" | sed 's/^# \?//' >&2; exit 2 ;;
 esac
 
 # the container runner: docker if there is one, else podman

@@ -1,7 +1,7 @@
 # MSK144: WSJT-X 3.0.2 against 3.2.0-rc1
 
 The stations run 3.0.2's `jt9` today. The port follows 3.2.0-rc1 (commit
-`567ad29ce`) and matches it byte for byte on all 367 stored runs. This file
+`567ad29ce`) and matches it byte for byte on all 395 stored runs. This file
 lists where 3.0.2 (commit `ccdfaf3c1`) differs from those stored outputs, and
 which WSJT-X change explains each difference. The A/B lists differences. It
 fixes none.
@@ -17,15 +17,19 @@ Run it with `scripts/msk144-ab-302.sh [JT9]`.
   as the 3.2.0-rc1 references were made.
 - **Compared**: stdout, exit status, stderr and the files left in the
   directory, against `tests/data/msk144/cases`.
-- **Runs compared**: 293 of the 367. Left out, 74: the 35 `shmsg` and 36 `swl`
+- **Runs compared**: 321 of the 395. Left out, 74: the 35 `shmsg` and 36 `swl`
   runs, the `swl-state` runs that pass `--msk-swl` (`jt9-files` and
   `jt9-feed`), and the other `jt9-feed` run (3.0.2 has no `--feed`; its
   `jt9-files` twin covers the same files). 3.0.2's `decode_msk144` also fixes
   `bshmsg` and `bswl` false and has no option for them. Patching 3.0.2 the way
   the reference was patched would give them a counterpart. We did not.
-- **Result**: 267 runs the same, 26 different.
+- **Result**: 287 runs the same, 34 different. The 20 real UACNJ slots
+  (`real-uacnj-*`) all agree. The 8 new differences, from the truncated and
+  the streaming-header file, come from the final fix wave (cause 3 below).
 
-The 26 fall into three causes. A second build separates source from build
+The 34 fall into three causes. The table that follows, and its count of 26,
+stand for the 293 runs of Task 8, before that wave added `odd-trunc` and
+`odd-stream` (cause 3, 8 runs). A second build separates source from build
 flags: 3.0.2's source, built in the `wsjtx-oracle` image with 3.0.2's own
 CMake and no `-march=native`, gives the same 26 differences, so none comes
 from the compiler flags. Single changes then went into that tree, one build
@@ -37,11 +41,11 @@ each:
 | plus `c7df4aced` (`msk144sync.f90`) | 19 |
 | plus `c7df4aced` and `591214b05`'s `msk144spd.f90`, `msk_spectrum.f90` | 12 |
 
-The last twelve come from `71f683f9e`. That attribution rests on the error
-texts, which first appear in that commit (`git log -S`). We did not rebuild
-with it.
+The last twelve come from `71f683f9e`, and the 8 runs of the final wave with
+them. That attribution rests on the error texts, which first appear in that
+commit (`git log -S`). We did not rebuild with it.
 
-## The 26 differences
+## The 34 differences
 
 ### 1. `msk144sync` passed the wrong array element: 7 runs
 
@@ -93,23 +97,38 @@ seven runs match.
 The same commit also adds the finiteness checks, the `nstep` cap and the
 `xmax` initialisation the spec names. No corpus run reaches them.
 
-### 3. Input validation in `jt9`: 12 runs
+### 3. Input validation in `jt9`: 20 runs
 
-`odd-bits8`, `odd-rate11025` and `odd-stereo`, each at `d1`, `d3`, `defaults`
-and `ms`.
+`odd-bits8`, `odd-rate11025` and `odd-stereo` (Task 8), and `odd-trunc` and
+`odd-stream` (the final fix wave), each at `d1`, `d3`, `defaults` and `ms`.
 
 | | 3.2.0-rc1 (the port) | 3.0.2 |
 |---|---|---|
 | 8-bit, stereo WAV | stderr `jt9: cannot read WAV file ...: unsupported WAV format; expected mono 16-bit PCM`, `STOP 2`, exit 2 | ` EOF on input file ...`, `<DecodeFinished>   0   0        0`, exit 0 |
 | 11025 Hz WAV | stderr `jt9: unsupported 11025 Hz WAV sample rate for the selected mode`, `STOP 2`, exit 2 | the same ` EOF` line, exit 0 |
+| WAV cut mid-data (`odd-trunc`: the header says 15 s, the file holds 9 s) | stderr `jt9: cannot read WAV file ...: WAV chunk extends beyond end of file`, `STOP 2`, exit 2 | ` EOF on input file`, then the decodes of the 9 s present (`K1JT WA4CQG EM72`), `<DecodeFinished>`, exit 0 |
+| WAV with the streaming size 0xFFFFFFFF (`odd-stream`: 15 s of data behind it) | stderr `jt9: cannot read WAV file ...: WAV chunk has an invalid size`, `STOP 2`, exit 2 | the decodes of the whole file, `<DecodeFinished>`, exit 0 |
 
 3.0.2 also leaves an empty `decoded.txt` for the 11025 Hz and the stereo file;
 3.2.0-rc1 stops before it opens one.
 
 Cause: `71f683f9e`, "fix(jt9): validate CLI and WAV inputs" (David Christle,
 2026-07-17): `jt9_input_validation.f90`, a stricter `readwav.f90` and
-`jt9.f90`. Both error texts first appear there. The port's WAV reader follows
-3.2.0-rc1.
+`jt9.f90`. Its message says it will "bound sample reads to the declared data
+chunk", and `readwav.f90` now fails when a chunk's declared size runs past the
+end of the file (`WAV chunk extends beyond end of file`) or has the size
+0xFFFFFFFF (`WAV chunk has an invalid size`). It is the only commit between
+the two (`git log -S'extends beyond end of file' ccdfaf3c1..567ad29ce -- lib`)
+that adds those texts. The earlier `readwav.f90` read what the file held and
+reported ` EOF on input file`. The port's WAV reader follows 3.2.0-rc1.
+
+What this means for callers: with 3.0.2 a slot that a recorder was still
+writing, or that a crash cut short, gave its partial decodes and exit 0.
+With 3.2.0-rc1 and the port it gives no decode and exit 2. A caller should write
+each WAV whole (to a temporary name, then rename) before it runs jt9, and read
+exit 2 as "slot unreadable", not as a decoder fault. We ran 3.0.2
+(`/opt/git/sigmond/wsjtx/build-sigmond/jt9`) on both files to confirm the right
+column.
 
 ## Changes between the two that no corpus run shows
 
@@ -132,8 +151,9 @@ Cause: `71f683f9e`, "fix(jt9): validate CLI and WAV inputs" (David Christle,
 
 ## Reading it
 
-On ordinary signals both versions decode the same: 267 of 293 runs agree
+On ordinary signals both versions decode the same: 287 of 321 runs agree
 character for character. Where they differ, 3.0.2 reports a carrier 1 or 2 Hz
 off on some decodes, aborts when `-f`/`-F` put a window past the
-spectrum, and accepts WAV files that 3.2.0-rc1 refuses. The stations move from
+spectrum, and accepts WAV files that 3.2.0-rc1 refuses (8-bit, stereo,
+11025 Hz, a file cut mid-data, a streaming header). The stations move from
 the first to the second knowing this.

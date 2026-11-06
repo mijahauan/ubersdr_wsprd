@@ -40,6 +40,7 @@ own paths.
     recordings/msk144-samples/               WSJT-X's samples
     recordings/msk144-sim/                   the generated grid (+ MANIFEST: case, T/R)
     recordings/msk144-real/                  a real slot
+    recordings/msk144-uacnj/                 20 real slots from UACNJ, each with its JSON sidecar
 
 `args.txt` holds `jt9` and its arguments, paths from the repository root.
 `decoded.txt` is the empty file jt9 opens: MSK144 writes nothing to it.
@@ -91,6 +92,21 @@ runs `--feed` with `stdin.txt` (paths from the repository's root) as stdin.
 Their inputs are listed in `recordings/msk144-sim/MANIFEST.focus` (made by
 `scripts/msk144-sim-grid.sh`, which gives `corpus` no variants on them).
 
+## The final fix wave's cases (`scripts/msk144-oracle.sh extra`)
+
+Made one reference process per file, `OMP_DYNAMIC` and `OMP_THREAD_LIMIT` unset.
+
+| case | variants and what they show |
+|------|-----------------------------|
+| `odd-trunc`  | `d1`, `d3`, `defaults`, `ms`: a WAV whose header says 15 s but whose file stops at 9 s (cut from `181211_120500`). The reference and the port print `WAV chunk extends beyond end of file` and exit 2. 3.0.2 decoded the 9 s that were there and exited 0 (`AB-3.0.2.md`) |
+| `odd-stream` | the same four: a WAV with the streaming writers' placeholder size 0xFFFFFFFF in both headers, the full 15 s of data. The reference and the port print `WAV chunk has an invalid size` and exit 2; 3.0.2 decoded the file and exited 0 |
+| `real-uacnj-*` | `ms` only: 20 real 30 s slots from UACNJ's meteor-scatter archive (50.260 MHz, slots of 2026-11-04 to 2026-11-06), run with meteor-scatter's own command line `-Y --msk144 -p 15 -f 1500 -F 200 -d 3 -a .` |
+
+The two odd WAVs are `@I/` inputs, made by `scripts/jt9-compare.sh`'s generator
+like the others. The `real-uacnj-*` inputs are in `recordings/msk144-uacnj/`,
+12 kHz s16 mono, each beside the JSON sidecar meteor-scatter wrote (its decodes,
+the frontend status). Station data of this kind is public.
+
 ## Inputs
 
 **WSJT-X's samples.** `181211_120500.wav` and `181211_120800.wav` come from
@@ -128,14 +144,18 @@ slot). Two cases run it: `real-261023-p30`
 (T/R 30 s) and `real-261023-p15` (its first 15 s). Copied from
 `proofs/agu-2026/spectrum/data/`.
 
-**Raw station slots.** None kept. meteor-scatter keeps no raw slots by
-default, so the corpus holds no hour of undecoded slots from a station. The
-design (section 7) wants that hour; it needs a station with slot retention
-switched on.
+**UACNJ's slots.** `recordings/msk144-uacnj/*.wav` and their `.json`
+sidecars: 20 slots of meteor-scatter's archive at UACNJ, 6 m, 30 s each. Cases
+`real-uacnj-YYMMDD_HHMMSS`. Each runs at `-p 15`, as meteor-scatter's command
+line has it, so the reference reads the first 15 s of a 30 s file. That is how
+meteor-scatter calls it; the sidecars record decodes of the whole slot, so some
+that the sidecars list fall outside the 15 s the corpus decodes. They are a
+sample, not the hour the design (section 7) asks for.
 
 ## What the reference does here
 
-- 66 cases, 338 runs. `release` and `o2` agree on all 268 runs of the plain variants.
+- 97 cases, 395 runs: 338 from the `corpus` step (66 cases), 29 from `focus` and 28 from `extra`.
+  `release` and `o2` agree on all 268 runs of the plain variants.
 - On the SNR sweep, depth 1 decodes down to -2 dB and depth 3 down to -4 dB. At -6 dB and below nothing decodes.
 - `-F 200` reaches all four +-200 Hz offsets at depth 3; at depth 1 three of the four fail. `defaults` (`-F 20`) loses every offset but 0.
 - MSK40 frames decode only under `shmsg` or `swl`, and not all of them: `msk40-rpt03` decodes under neither, `msk40-r03` only under `swl`. The port must reproduce that.
