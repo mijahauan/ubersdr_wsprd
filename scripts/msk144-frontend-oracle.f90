@@ -18,6 +18,7 @@
 !   K k i v...                   corr(1:nfft/2+1), the equalizer      [analytic's]
 !   F k i v...                   c(1:nfft) after the forward FFT      [analytic's]
 !   G k i v...                   c(1:nfft/2+1) after the filter       [analytic's]
+!   W k i v...                   c(1:2) after the half of the DC term [analytic's]
 !   O k i v...                   c(1:nfft), the analytic signal
 !   T k src jz f0                tweak1 of case src's O, jz points, f0 (float bits)
 !   U k i v...                   cb(1:jz)
@@ -181,6 +182,32 @@ program msk144_frontend_oracle
    navmask = (/1,1,1,1,0,0,0,0/); call one(3, 8, navmask, -3, 3, 0.0)  ! delf 0: the same trial seven times
    navmask = (/1,1,1,1,0,0,0,0/); call one(3, 8, navmask, -3, 3, 100.0) ! far from the signal
 
+   ! ---- analytic again, after the searches (k goes on from the last search)
+   ! the stale-corr path: a pc change seen at nfft 1024 with the equalizer off makes corr(1:513) and
+   ! sets pclast; at nfft 8192 with the equalizer on and the same pc, h is made again (nfft changed)
+   ! but corr is not: its entries from 514 on are the earlier calls' (msk144signalquality and mskrtd
+   ! call analytic this way)
+   k = k + 1
+   pc = (/0.05d0, -0.1d0, 0.8d0, -0.3d0, 0.2d0/)
+   beq = .false.
+   d(1:NF) = 0.0
+   d(1:NSPM) = real(osave(1:NSPM, 7))
+   call run_analytic(k, d, NSPM, 1024, pc, beq)
+   k = k + 1
+   beq = .true.
+   d(1:NF) = 0.0
+   d(1:NZ) = real(osave(1:NZ, 5))
+   call run_analytic(k, d, NZ, NF, pc, beq)
+   ! the DC term: with the equalizer, h(1) = 0 times corr(1) = (cos pd, sin pd) with pd = 2.475
+   ! (negative real part, positive imaginary part) times a DC term of negative real part gives
+   ! c(1) = (+0, -0) before the half: where a real 0.5*c(1) and the complex product with (0.5, 0)
+   ! differ in the sign of a zero
+   k = k + 1
+   pc = (/0.0d0, 0.0d0, 1.1d0, 0.0d0, 0.0d0/)
+   d(1:NF) = 0.0
+   d(1:NZ) = real(osave(1:NZ, 5)) - 2.0
+   call run_analytic(k, d, NZ, NF, pc, beq)
+
 contains
 
    ! k's window under msk144sync's split: ntol/delf; nthreads slices, slice id (1..nthreads)
@@ -301,6 +328,14 @@ subroutine msk144_dump_hcf(h, corr, c, nfft)
    call prc('K', kcase, corr, nh+1)
    call prc('F', kcase, c, nfft)
 end subroutine msk144_dump_hcf
+
+subroutine msk144_dump_w(c)
+   implicit none
+   integer :: kcase
+   complex :: c(*)
+   common /mskcase/ kcase
+   call prc('W', kcase, c, 2)
+end subroutine msk144_dump_w
 
 subroutine msk144_dump_g(c, nfft)
    implicit none

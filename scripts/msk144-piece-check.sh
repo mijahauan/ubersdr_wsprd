@@ -24,9 +24,9 @@
 #
 # frontend also checks intermediate values: the oracle gets, appended, a copy
 # of the reference's lib/analytic.f90 (sed: renamed analytic_trace, plus two
-# calls, one before the filter's `if( beq )` and one before `c(1)=0.5*c(1)`,
-# that print the filter response h, the equalizer corr, and c after the forward
-# FFT and after the filter), and the port's hook (analytic_trace in
+# calls, one before the filter's `if( beq )`, one before `c(1)=0.5*c(1)` and
+# one after it, that print the filter response h, the equalizer corr, and c
+# after the forward FFT, after the filter and after the half of the DC term), and the port's hook (analytic_trace in
 # src/msk_frontend.h) prints the same. It also runs msk144_freq_search once
 # per trial frequency, for each trial's correlation peak. The driver links
 # FFTW (-lfftw3f).
@@ -94,9 +94,9 @@ if [[ $piece == frontend ]]; then
     sed -e 's/^subroutine analytic(/subroutine analytic_trace(/' \
         -e 's/^end subroutine analytic$/end subroutine analytic_trace/' \
         -e 's/^  if( beq ) then$/  call msk144_dump_hcf(h,corr,c,nfft)\n&/' \
-        -e 's/^  c(1)=0\.5\*c(1) .*$/  call msk144_dump_g(c,nfft)\n&/' \
+        -e 's/^  c(1)=0\.5\*c(1) .*$/  call msk144_dump_g(c,nfft)\n&\n  call msk144_dump_w(c)/' \
         "$ref" > "$work/trace-routine.f90"
-    [[ $(diff "$ref" "$work/trace-routine.f90" | grep -c '^>') == 4 ]] ||
+    [[ $(diff "$ref" "$work/trace-routine.f90" | grep -c '^>') == 5 ]] ||
         { echo "msk144-piece-check: the sed instrumentation did not apply to $ref" >&2; exit 1; }
     cat "$oracle_src" "$work/trace-routine.f90" > "$oracle_full"
 fi

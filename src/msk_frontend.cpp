@@ -195,7 +195,10 @@ void analytic(const float* d, int npts, int nfft, cfloat* c, std::array<double, 
     }
 
     if (analytic_trace) analytic_trace(1, h.data(), corr.data(), c, nfft);
-    c[0] = cfloat(0.5f * c[0].real(), 0.5f * c[0].imag());  // Half of DC term
+    // c(1)=0.5*c(1): the real 0.5 made complex (0.5, 0) for a full complex product, as gfortran does
+    // (signed zeros show it)
+    c[0] = cmul(cfloat(0.5f, 0.0f), c[0]);  // Half of DC term
+    if (analytic_trace) analytic_trace(2, h.data(), corr.data(), c, nfft);
     for (int i = nh + 1; i < nfft; ++i) c[i] = cfloat(0.0f, 0.0f);  // Zero the negative frequencies
     fft_c2c_inplace(c, nfft, 1);                                    // Inverse c2c FFT
 }

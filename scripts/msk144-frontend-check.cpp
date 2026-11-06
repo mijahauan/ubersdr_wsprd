@@ -60,15 +60,17 @@ void prc(const char* tag, int k, const cfloat* x, int n) {
 }
 
 int kcase = 0;
-// analytic_trace of the oracle: H, K and F before the filter, G after it
+// analytic_trace of the oracle: H, K and F before the filter, G after it, W after the DC term's half
 void trace(int stage, const float* h, const cfloat* corr, const cfloat* c, int nfft) {
     const int nh = nfft / 2;
     if (stage == 0) {
         prr("H", kcase, h, nh + 1);
         prc("K", kcase, corr, nh + 1);
         prc("F", kcase, c, nfft);
-    } else {
+    } else if (stage == 1) {
         prc("G", kcase, c, nh + 1);
+    } else {
+        prc("W", kcase, c, 2);
     }
 }
 
@@ -119,7 +121,7 @@ int main() {
         } else if (tag == "D") {
             std::puts(line.c_str());
             store(line, din[curk]);
-        } else if (tag == "H" || tag == "K" || tag == "F" || tag == "G" || tag == "O") {
+        } else if (tag == "H" || tag == "K" || tag == "F" || tag == "G" || tag == "W" || tag == "O") {
             int k;
             is >> k;
             if (tag == "O") store(line, oraclo[k]);

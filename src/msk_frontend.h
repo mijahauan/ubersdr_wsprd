@@ -49,8 +49,8 @@ void msk144_freq_search(const cfloat* cdat, float fc, int if1, int if2, float de
 // A debug-only trace of analytic, for the piece check: null in production
 // (two untaken branches a call). When set, it is called with stage 0 just
 // before the filter is applied (h and corr for 1..nfft/2+1, c(1:nfft) after
-// the forward FFT) and stage 1 just before the half of the DC term (c after
-// the filter), as scripts/msk144-frontend-oracle.f90's copy of analytic
+// the forward FFT), stage 1 just before the half of the DC term (c after
+// the filter) and stage 2 just after it (c(1:2)), as scripts/msk144-frontend-oracle.f90's copy of analytic
 // prints them.
 using AnalyticTrace = void (*)(int stage, const float* h, const cfloat* corr, const cfloat* c, int nfft);
 extern AnalyticTrace analytic_trace;
