@@ -19,12 +19,20 @@
 # which NEW runs alone and which are checked against the hybrid's outputs
 # stored with them (stdout, the status, decoded.txt; stderr empty), as
 # scripts/jt9-wine-check.sh checks jt9.exe.
+# MSK144's (jt9 -k: case names msk144-CASE/VARIANT, from
+# tests/data/msk144/cases/*/jt9-*, scripts/msk144-oracle.sh) run against
+# STOCK as the others do, but for the variants shmsg and swl (our
+# --msk-shmsg and --msk-swl, which STOCK has no option for): NEW alone,
+# against the outputs stored with them, and skipped while NEW's usage does
+# not list the option. NEW without --spread (the reference itself, as its own
+# NEW) is run without it.
 # Improved 3.2.0's own jt9 as STOCK on the same cases is an A/B only: its
 # FT4 differs from 567ad29ce's (an a-priori pass, bit metrics, its front end).
 #
 #   scripts/jt9-compare.sh NEW_JT9 STOCK_JT9 [--docker IMAGE]
 #
-#   --docker IMAGE                STOCK runs in IMAGE (the oracle's jt9 needs
+#   --docker IMAGE                STOCK runs in IMAGE (with $DOCKER, or docker if
+#                                 there is one, else podman) (the oracle's jt9 needs
 #                                 its libraries: wsjtx-oracle), the repository
 #                                 and work dir mounted at their own paths, its
 #                                 stdout and stderr files there as NEW's are
@@ -63,6 +71,12 @@ usage() { echo "usage: $0 NEW_JT9 STOCK_JT9 [--docker IMAGE]" >&2; exit 2; }
 (( $# >= 2 )) || usage
 new=$(realpath "$1") stock=$(realpath "$2"); shift 2
 image=
+# the container runner: $DOCKER, else docker if there is one, else podman
+# (rootless podman with no user session: cgroupfs, and the caller's own ids)
+docker=${DOCKER:-}
+if [[ -z $docker ]]; then if command -v docker > /dev/null; then docker=docker; else docker=podman; fi; fi
+ctr_pre=() ctr_run=()
+if [[ $(basename "$docker") == podman ]]; then ctr_pre=(--cgroup-manager=cgroupfs); ctr_run=(--userns=keep-id); fi
 while (( $# )); do
     case $1 in
         --docker) (( $# >= 2 )) || usage; image=$2; shift ;;
@@ -419,6 +433,15 @@ done
 add "ft2-cli/t-subdir|same-bare|steps:mkdir:tmp|--ft2 -d 2 -t tmp $P2"
 add "ft2-cli/t-missing|same-bare|-|--ft2 -d 2 -t nodir $P2"
 
+# 7. MSK144 (jt9 -k), against the reference's jt9 (scripts/msk144-oracle.sh):
+# every case's stored variants, run as args.txt says. shmsg and swl
+# (--msk-shmsg, --msk-swl) are checked against the stored outputs.
+for a in $(find "$repo/tests/data/msk144/cases" -path '*/jt9-*' -name args.txt 2> /dev/null | sort); do
+    d=$(dirname "$a"); v=$(basename "$d"); v=${v#jt9-}; c=$(basename "$(dirname "$d")")
+    kind=same-bare; [[ $v == shmsg || $v == swl ]] && kind=stored-bare
+    add "msk144-$c/$v|$kind|-|$(cut -d' ' -f2- "$a")"
+done
+
 # ---------------------------------------------------------------- running
 run_one() {  # side spec
     local side=$1 spec=$2 name kind seed args
@@ -440,7 +463,7 @@ run_one() {  # side spec
     fi
     [[ $kind == *bare* ]] || touch "$dir/cwd/plotspec" "$dir/cwd/decdata"
     local argv=() tok
-    [[ $side == new ]] && argv+=(--spread exact)
+    [[ $side == new ]] && (( new_spread )) && argv+=(--spread exact)
     for tok in $args; do
         case $tok in
             recordings/*|tests/*) argv+=("$repo/$tok") ;;
@@ -453,7 +476,7 @@ run_one() {  # side spec
     if [[ $side == new ]]; then
         (cd "$dir/cwd" && "$new" "${argv[@]}" > ../stdout 2> ../stderr < /dev/null)
     elif [[ -n $image ]]; then
-        docker run --rm --network none -u "$(id -u):$(id -g)" -v "$repo:$repo:ro" -v "$work:$work" \
+        "$docker" "${ctr_pre[@]}" run --rm --network none "${ctr_run[@]}" -u "$(id -u):$(id -g)" -v "$repo:$repo:ro" -v "$work:$work" \
             -v "$(dirname "$stock"):$(dirname "$stock"):ro" -w "$dir/cwd" "$image" \
             sh -c 'exec "$@" > ../stdout 2> ../stderr < /dev/null' sh "$stock" "${argv[@]}"
     else
@@ -475,6 +498,7 @@ compare() {  # spec -> results/<name>
         # against the FT2 oracle case's stored outputs (the repository's
         # directory taken out of the paths printed, as the oracle kept them)
         local d=$repo/tests/data/ft2/cases/${name#ft2-oracle/} f
+        if [[ $name == msk144-* ]]; then d=$repo/tests/data/msk144/cases/${name#msk144-}; d=${d%/*}/jt9-${d##*/}; fi
         cmp -s <(sed "s|$repo/||g" "$n/stdout") "$d/stdout.txt" ||
             { bad=1; report+="stdout:"$'\n'$(diff "$d/stdout.txt" <(sed "s|$repo/||g" "$n/stdout") | head -20)$'\n'; }
         cmp -s "$n/status" "$d/status.txt" || { bad=1; report+="status: jt9 $(cat "$d/status.txt"), jt9 $(cat "$n/status")"$'\n'; }
@@ -519,16 +543,25 @@ compare() {  # spec -> results/<name>
 # Is STOCK the FT2 reference (above)? Its usage names --ft2.
 stock_ft2=0
 if [[ -n $image ]]; then
-    docker run --rm --network none -v "$(dirname "$stock"):$(dirname "$stock"):ro" "$image" "$stock" -h 2> /dev/null
+    "$docker" "${ctr_pre[@]}" run --rm --network none "${ctr_run[@]}" -v "$(dirname "$stock"):$(dirname "$stock"):ro" "$image" "$stock" -h 2> /dev/null
 else
     "$stock" -h 2> /dev/null
 fi | grep -q -- '--ft2' && stock_ft2=1
 (( stock_ft2 )) || echo "jt9-compare: STOCK has no --ft2: FT2's oracle cases checked against their stored outputs, its others skipped" >&2
 
+# What NEW's usage lists: --spread (ours; the reference has none), and
+# MSK144's two switches.
+new_spread=0 new_shmsg=0
+new_usage=$("$new" -h 2> /dev/null || true)
+[[ $new_usage == *--spread* ]] && new_spread=1
+[[ $new_usage == *--msk-shmsg* && $new_usage == *--msk-swl* ]] && new_shmsg=1
 selected=()
 for spec in "${cases[@]}"; do
     name=${spec%%|*}
     [[ -n $only && ! $name =~ $only ]] && continue
+    if [[ $name == msk144-*/shmsg || $name == msk144-*/swl ]] && (( ! new_shmsg )); then
+        echo "SKIP ${name} (NEW has no --msk-shmsg and --msk-swl)" > "$work/results/${name//\//:}"; continue
+    fi
     if [[ $name == ft2-* ]] && (( ! stock_ft2 )); then
         if [[ $name == ft2-oracle/* ]]; then
             IFS='|' read -r _ kind seed args <<< "$spec"

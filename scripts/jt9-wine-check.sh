@@ -16,7 +16,12 @@
 # oracle's jt9 cases (tests/data/ft4/cases/*/jt9-*) and its file-mode
 # cases (tests/data/ft4/filemode/cases). Then FT2's (jt9 --ft2): the FT2
 # oracle's jt9 cases (tests/data/ft2/cases/*/jt9-*, made by the hybrid
-# ft2-jt9). FT8's, FT4's and FT2's run several at once (JT9_WINE_JOBS,
+# ft2-jt9). Then MSK144's (jt9 -k): the cases in tests/data/msk144/cases/
+# (the reference's outputs, scripts/msk144-oracle.sh), left out while the jt9
+# run does not list --msk144 in its usage, the shmsg and swl variants
+# (--msk-shmsg, --msk-swl) while it lists neither, and the cases on an odd
+# input (@I/..., made by scripts/jt9-compare.sh) always. FT8's, FT4's, FT2's and
+# MSK144's run several at once (JT9_WINE_JOBS,
 # default nproc), each in its own directory.
 # A native jt9 off x86-64 (aarch64: the Pi) may differ where
 # tests/data/jt9-arm64-accepted.txt says it does: FFTW's NEON codelets round
@@ -107,14 +112,25 @@ PY
 done < <(find "$repo/tests/data/fst4w/cases" -name args.txt | sort)
 
 # FT8, FT4 and FT2: run every case whose inputs are here, then compare.
-ft8=() nft4=0 nft2=0
+ft8=() nft4=0 nft2=0 nmsk=0
+usage_text=$(jt9 -h 2> /dev/null | tr -d '\r' || true)
+msk_ok=false msk_flags=false
+[[ $usage_text == *--msk144* ]] && msk_ok=true
+[[ $usage_text == *--msk-shmsg* && $usage_text == *--msk-swl* ]] && msk_flags=true
 while IFS= read -r a; do
     missing=
-    for t in $(cut -d' ' -f2- "$a"); do [[ $t == recordings/* && ! -f $repo/$t ]] && missing=$t; done
     d=$(dirname "$a")
+    if [[ $d == */msk144/* ]]; then
+        $msk_ok || continue
+        if [[ $d == */jt9-shmsg || $d == */jt9-swl ]]; then $msk_flags || continue; fi
+    fi
+    for t in $(cut -d' ' -f2- "$a"); do
+        [[ $t == recordings/* && ! -f $repo/$t ]] && missing=$t
+        [[ $t == @I/* ]] && continue 2
+    done
     [[ -n ${JT9_WINE_ONLY:-} && ! ${d#"$repo/tests/data/"} =~ $JT9_WINE_ONLY ]] && continue
-    if [[ -n $missing ]]; then skip=$((skip + 1)); else ft8+=("$d"); [[ $d == */ft4/* ]] && nft4=$((nft4 + 1)); [[ $d == */ft2/* ]] && nft2=$((nft2 + 1)); fi
-done < <(for m in ft8 ft4 ft2; do
+    if [[ -n $missing ]]; then skip=$((skip + 1)); else ft8+=("$d"); [[ $d == */ft4/* ]] && nft4=$((nft4 + 1)); [[ $d == */ft2/* ]] && nft2=$((nft2 + 1)); [[ $d == */msk144/* ]] && nmsk=$((nmsk + 1)); fi
+done < <(for m in ft8 ft4 ft2 msk144; do
              find "$repo/tests/data/$m/cases" -path '*/jt9-*' -name args.txt 2> /dev/null | sort
              find "$repo/tests/data/$m/filemode/cases" -name args.txt 2> /dev/null | sort
          done)
@@ -159,6 +175,10 @@ for d in "${ft8[@]}"; do
         for f in $( (cd "$d/files" 2> /dev/null && find . -type f; cd "$run/cwd" && find . -type f) | sort -u); do
             cmp -s <(nocr "$run/cwd/$f") "$d/files/$f" 2> /dev/null || differs "${f#./}" "$run/cwd/$f"
         done
+    elif [[ $d == */msk144/* ]]; then  # nothing is written but what is stored (usually nothing)
+        for f in $( (cd "$d" && ls | grep -v -x -e args.txt -e stdout.txt -e status.txt -e stderr.txt; cd "$run/cwd" && find . -type f | sed 's|^\./||') | sort -u); do
+            cmp -s <(nocr "$run/cwd/$f") "$d/$f" 2> /dev/null || differs "$f" "$run/cwd/$f"
+        done
     else
         cmp -s <(nocr "$run/cwd/decoded.txt") "$d/decoded.txt" || differs decoded.txt "$run/cwd/decoded.txt"
     fi
@@ -169,5 +189,5 @@ done
 
 label="jt9.exe under wine"; $native && label="$(basename "$exe")"
 acc_note=; (( accept )) && acc_note=", $accept as accepted for arm64 (tests/data/jt9-arm64-accepted.txt)"
-echo "$label: $pass cases as WSJT-X's jt9 ($((${#ft8[@]} - nft4 - nft2)) of them FT8, $nft4 FT4, $nft2 FT2)$acc_note, $fail differing, $skip without their inputs"
+echo "$label: $pass cases as WSJT-X's jt9 ($((${#ft8[@]} - nft4 - nft2 - nmsk)) of them FT8, $nft4 FT4, $nft2 FT2, $nmsk MSK144)$acc_note, $fail differing, $skip without their inputs"
 (( fail == 0 && pass > 0 ))
