@@ -52,9 +52,16 @@ int main() {
         } else if (line.rfind("R ", 0) == 0) {
             int nharderror = -99, iter = -99;
             signed char cw[128] = {};
+            // the line-for-line reference first, on a copy of message77 (written only on success)
+            int rnh = -99, riter = -99;
+            signed char rm77[77], rcw[128] = {};
+            std::memcpy(rm77, m77, 77);
+            msk144::bpdecode128_90_reference(llr, maxiter, rm77, rcw, rnh, riter);
             if (want_trace) bp_trace::install();
             msk144::bpdecode128_90(llr, maxiter, m77, cw, nharderror, iter);
             bp_trace::remove();
+            if (rnh != nharderror || riter != iter || std::memcmp(rm77, m77, 77) != 0 || std::memcmp(rcw, cw, 128) != 0)
+                std::printf("MISMATCH bpdecode128_90 against bpdecode128_90_reference\n");
             signed char word[90];
             std::memcpy(word, cw, 90);
             const int nbadcrc = msk144::chkcrc13a(word) ? 0 : 1;

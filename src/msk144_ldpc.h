@@ -7,7 +7,8 @@
 //
 // What it rests on: no multiply-adds fused (-ffp-contract=off, CMakeLists.txt);
 // float sums and products in the Fortran's order; glibc's tanhf (tanhf_glibc,
-// ft8_ldpc.h), which gfortran calls for tanh of a default real.
+// and bp_tanhf, eight at a time to the same bits: ft8_ldpc.h), which gfortran
+// calls for tanh of a default real.
 //
 // bpdecode128_90.f90, chkcrc13a.f90, crc13.cpp: Steven Franke, K9AN, and Joe
 // Taylor, K1JT, WSJT-X (GNU GPL v3), and so is this.
@@ -41,6 +42,14 @@ extern Bpdecode128_90MsgTrace bpdecode128_90_msg_trace;
 // 0/1. The return value equals nharderror.
 int bpdecode128_90(const float llr[128], int maxiterations, signed char message77[77], signed char cw[128],
                    int& nharderror, int& niterations);
+// The line-for-line translation bpdecode128_90 was optimised from, kept for
+// the side-by-side test and as its fallback: the same results and the same
+// trace.
+int bpdecode128_90_reference(const float llr[128], int maxiterations, signed char message77[77],
+                             signed char cw[128], int& nharderror, int& niterations);
+// out[l] = 2*platanh(-tmn[l]), l < 8, as bpdecode128_90 computes it eight at a
+// time (for the side-by-side test of its lanes against platanh).
+void platanh2_n8(const float tmn[8], float out[8]);
 
 // chkcrc13a(decoded, nbadcrc) with nbadcrc == 0: true when the 13 bits after
 // the 77 of decoded(1:90) are the CRC of the 77 (bits 0/1).
