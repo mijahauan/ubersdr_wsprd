@@ -463,11 +463,18 @@ command line of the corpus, `--msk-shmsg` and `--msk-swl` too). Two things diffe
 and only for float files. `mskrtd` skips a block as silent when its rms is below
 one 16-bit count; a float file has no such quantisation floor (radiod's F32 can
 sit at -135 dBFS), so only a block of whole counts takes that test, and a very
-quiet float file decodes like a loud one (`float-level`). A block with a NaN or an
+quiet float file decodes like a loud one (`float-level`). The same difference can
+change the printed SNR on very quiet float audio: a block that 16-bit input would
+skip as silent still updates the noise level, so a later decode prints the SNR it
+earned, where the 16-bit file prints a lower one (a test file at an rms of 0.7
+count: SNR 8 as float, 0 as rounded 16-bit). The float figure is the better one.
+A block with a NaN or an
 inf is skipped as silent as well, where it would otherwise poison the noise level
 for the rest of the file (`float-nan`); the run still exits 0 and prints
 `<DecodeFinished>`. The `decoded.txt` test uses the scaled values too, so a file
-quieter than rms 0.5 count leaves no `decoded.txt`. These two cases have no
+quieter than rms 0.5 count leaves no `decoded.txt`, and a NaN among the first
+180000 samples makes that rms NaN, which writes the (empty) file whatever the
+level, as `decoder.f90`'s test does. These two cases have no
 reference output: their stored files come from this port. The 16-bit path
 keeps its parity with WSJT-X 3.2.0-rc1: the 395 reference runs still match.
 
@@ -873,7 +880,8 @@ MSK144 cases on a wine host.
 `scripts/float-input-check.sh` writes each 16-bit recording again as 32-bit
 float, the same samples, and requires `wsprd` (under four option sets) and
 `jt9 --fst4w` to leave the same files from it, byte for byte, and `jt9 --msk144` under
-every command line of the MSK144 corpus that reads one 16-bit recording.
+every command line of the MSK144 corpus that reads 16-bit recordings, including the
+runs with several files and `--feed`, which carry state from file to file.
 `scripts/ft-float-feed-check.sh` decodes each FT8, FT4 and FT2 recording set as
 one run (one decoder for its files, in order) under three option sets, from
 the 16-bit files, from their float copies, and through `--feed` from each,

@@ -329,8 +329,14 @@ fi
 # the driver (no output file if the port is missing: the link fails)
 rm -f "$work/driver"
 "$cxx" "${flags[@]}" "$driver_src" "${srcs[@]}" -lfftw3f -lm -lpthread -o "$work/driver"
-"$work/driver" < "$work/oracle.out" > "$work/driver.out" ||
-    { echo "msk144-piece-check: $piece: the driver exited non-zero" >&2; tail -3 "$work/driver.out" >&2 || true; exit 1; }
+"$work/driver" < "$work/oracle.out" > "$work/driver.out" 2> "$work/driver.err" ||
+    { echo "msk144-piece-check: $piece: the driver exited non-zero" >&2; cat "$work/driver.err" >&2; tail -3 "$work/driver.out" >&2 || true; exit 1; }
+cat "$work/driver.err" >&2
+# ldpc: the driver must say the fast tables passed (else bpdecode128_90 ran its reference fallback
+# and the identical output proves nothing about the fast path)
+if [[ $piece == ldpc ]] && ! grep -q 'fast tables passed' "$work/driver.err"; then
+    echo "msk144-piece-check: ldpc: the driver did not report 'fast tables passed'" >&2; exit 1
+fi
 
 if cmp -s "$work/oracle.out" "$work/driver.out"; then
     if [[ $piece == frontend ]]; then

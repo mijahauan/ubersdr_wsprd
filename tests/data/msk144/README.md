@@ -118,8 +118,8 @@ again on its float copy must leave the same files.
 
 | case          | variants | what it shows |
 |---------------|----------|---------------|
-| `float-nan`   | `ms`, `swl` | a float file with NaN (twice, 50 and 1000 samples), +inf and -inf written over it, away from the decode. The port exits 0 at the normal speed, prints the decode at 8.7 s and `<DecodeFinished>`. A block with a non-finite sample counts as silent |
-| `float-level` | `ms` | the same samples times 2^-20 (an rms far below one 16-bit count). It decodes the same line as `sample-181211_120500`. It leaves no `decoded.txt`: that file's rms test (`decoder.f90`) runs on the same scaled values, as the brief says, and finds a quiet file |
+| `float-nan`   | `ms`, `swl` | a float file with NaN, +inf and -inf written over it: 10 NaN, one +inf and one -inf in the first 0.6 s (the first non-silent block, where a NaN would become the noise level for the whole file and print every SNR as 0), then more away from the decode. The port exits 0 at the normal speed, prints the decode at 8.7 s with its true SNR (8) and `<DecodeFinished>`. A block with a non-finite sample counts as silent. It writes `decoded.txt` (empty), because a NaN in the first 180000 samples makes the rms NaN and `!(rms < 0.5)` holds, as in `decoder.f90`'s semantics |
+| `float-level` | `ms` | the same samples times 2^-20 (an rms far below one 16-bit count). It decodes the same line as `sample-181211_120500`. It leaves no `decoded.txt`: that file's rms test (`decoder.f90`) (`decoder.f90:104-107`: `!(rms < 0.5)` over the first 180000 samples) runs on the scaled values, and finds a quiet file |
 
 ## Inputs
 
